@@ -1,4 +1,4 @@
-import { Component, ErrorInfo, ReactNode, createElement } from 'react';
+import { Component, ErrorInfo, ReactNode } from 'react';
 
 interface ErrorBoundaryState {
   hasError: boolean;
@@ -25,12 +25,12 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
     };
   }
 
-  static getDerivedStateFromError(error: Error): ErrorBoundaryState {
+  static getDerivedStateFromError(error: Error, state: ErrorBoundaryState): ErrorBoundaryState {
     return {
       hasError: true,
       error,
       errorInfo: null,
-      retryCount: 0,
+      retryCount: state?.retryCount ?? 0,
     };
   }
 
@@ -50,43 +50,32 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
 
   render(): ReactNode {
     const { hasError, error, errorInfo, retryCount } = this.state;
-    const { children, fallback, resetKeys } = this.props;
-
-    if (resetKeys) {
-      // Simple reset key comparison
-      const currentKey = JSON.stringify(resetKeys);
-      if (currentKey !== (this._lastResetKey ?? null)) {
-        this._lastResetKey = currentKey;
-        this.setState({ hasError: false, error: null, errorInfo: null, retryCount: 0 });
-      }
-    }
+    const { children, fallback } = this.props;
 
     if (hasError) {
       if (fallback) return fallback;
       return (
-        createElement('div', {
-          className:
-            'flex flex-col items-center justify-center min-h-[400px] text-center p-6 bg-[var(--color-surface)] border border-[var(--color-border)] rounded-lg',
-        }),
-        createElement('h2', { className: 'text-xl font-bold text-red-600 mb-2' }, 'Something went wrong'),
-        error && (
-          createElement('p', { className: 'text-sm text-[var(--color-muted)] mb-4' }, error.message)
-        ),
-        errorInfo && errorInfo.componentStack && (
-          createElement('details', { className: 'text-xs text-[var(--color-muted)] text-left w-full mb-4' },
-            createElement('summary', null, 'Diagnostic details'),
-            createElement('pre', { className: 'bg-[var(--color-neutral-100)] p-3 overflow-auto mt-2' }, errorInfo.componentStack)
-          )
-        ),
-        createElement('button', {
-          onClick: this.retry,
-          className: 'px-4 py-2 bg-[var(--color-accent)] text-white rounded hover:bg-studio-700 transition',
-        }, `Retry (attempt ${retryCount + 1})`)
+        <div className="flex flex-col items-center justify-center min-h-[400px] text-center p-6 bg-[var(--color-surface)] border border-[var(--color-border)] rounded-lg">
+          <h2 className="text-xl font-bold text-red-600 mb-2">Something went wrong</h2>
+          {error && (
+            <p className="text-sm text-[var(--color-muted)] mb-4">{error.message}</p>
+          )}
+          {errorInfo && errorInfo.componentStack && (
+            <details className="text-xs text-[var(--color-muted)] text-left w-full mb-4">
+              <summary>Diagnostic details</summary>
+              <pre className="bg-[var(--color-neutral-100)] p-3 overflow-auto mt-2">{errorInfo.componentStack}</pre>
+            </details>
+          )}
+          <button
+            onClick={this.retry}
+            className="px-4 py-2 bg-[var(--color-accent)] text-white rounded hover:bg-studio-700 transition"
+          >
+            Retry (attempt {retryCount + 1})
+          </button>
+        </div>
       );
     }
 
     return children;
   }
-
-  private _lastResetKey: string | null = null;
 }
