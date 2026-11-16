@@ -4,9 +4,9 @@ import { useTheme } from '@/context/ThemeContext';
 import { useApp } from '@/context/AppContext';
 
 export default function Topbar({
-  onMenuToggle,
+  openMobileDrawer,
 }: {
-  onMenuToggle: () => void;
+  openMobileDrawer: () => void;
 }) {
   const location = useLocation();
   const { theme, toggleTheme } = useTheme();
@@ -30,9 +30,9 @@ export default function Topbar({
     <header className="h-16 border-b border-[var(--color-border)] bg-[var(--color-surface)]/90 backdrop-blur flex items-center justify-between px-4 lg:px-6 shrink-0 z-10 sticky top-0">
       <div className="flex items-center gap-4">
         <button
-          onClick={onMenuToggle}
-          aria-label="Open menu"
-          className="md:hidden p-2 rounded hover:bg-[var(--color-border)]/50"
+          onClick={openMobileDrawer}
+          aria-label="Open navigation menu"
+          className="md:hidden p-2 rounded hover:bg-[var(--color-border)]/50 focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] focus-visible:ring-offset-2"
         >
           <Menu className="w-5 h-5" />
         </button>
@@ -51,7 +51,7 @@ export default function Topbar({
         <button
           onClick={refreshQuota}
           aria-label="Refresh usage"
-          className="p-2 rounded text-[var(--color-muted)] hover:text-[var(--color-accent)] hover:bg-[var(--color-border)]/50 transition"
+          className="p-2 rounded text-[var(--color-muted)] hover:text-[var(--color-accent)] hover:bg-[var(--color-border)]/50 transition focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] focus-visible:ring-offset-2"
           title="Refresh provider usage"
         >
           <Bell className="w-4 h-4" />
@@ -59,13 +59,13 @@ export default function Topbar({
         <button
           onClick={toggleTheme}
           aria-label="Toggle theme"
-          className="p-2 rounded text-[var(--color-muted)] hover:text-[var(--color-accent)] hover:bg-[var(--color-border)]/50 transition hidden md:block"
+          className="p-2 rounded text-[var(--color-muted)] hover:text-[var(--color-accent)] hover:bg-[var(--color-border)]/50 transition hidden md:block focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] focus-visible:ring-offset-2"
         >
           {theme === 'light' ? <Moon className="w-5 h-5" /> : <Sun className="w-5 h-5" />}
         </button>
         <button
           aria-label="Help"
-          className="p-2 rounded text-[var(--color-muted)] hover:text-[var(--color-accent)] hover:bg-[var(--color-border)]/50 transition hidden md:block"
+          className="p-2 rounded text-[var(--color-muted)] hover:text-[var(--color-accent)] hover:bg-[var(--color-border)]/50 transition hidden md:block focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] focus-visible:ring-offset-2"
         >
           <HelpCircle className="w-5 h-5" />
         </button>

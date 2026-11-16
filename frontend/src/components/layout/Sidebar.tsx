@@ -1,4 +1,4 @@
-import { useNavigate, useMatch } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { useState, useEffect, useCallback } from 'react';
 import {
   LayoutDashboard,
@@ -33,53 +33,56 @@ const navItems = [
 ];
 
 export default function Sidebar({
-  mobileOpen,
-  onMobileToggle,
+  isMobileOpen,
+  closeMobileDrawer,
 }: {
-  mobileOpen: boolean;
-  onMobileToggle: () => void;
+  isMobileOpen: boolean;
+  closeMobileDrawer: () => void;
 }) {
   const navigate = useNavigate();
+  const location = useLocation();
   const { theme, toggleTheme } = useTheme();
   const [collapsed, setCollapsed] = useState(false);
 
   // Close mobile drawer on route change
   useEffect(() => {
-    onMobileToggle();
-  }, [navigate, onMobileToggle]);
+    closeMobileDrawer();
+  }, [navigate, closeMobileDrawer]);
 
   const handleCollapseToggle = useCallback(() => {
     setCollapsed((prev) => !prev);
   }, []);
 
-  const handleCloseMobile = useCallback(() => {
-    onMobileToggle();
-  }, [onMobileToggle]);
-
   const handleNavClick = useCallback((path: string) => {
     navigate(path);
-    onMobileToggle();
-  }, [navigate, onMobileToggle]);
+    closeMobileDrawer();
+  }, [navigate, closeMobileDrawer]);
 
   // Close mobile drawer on Escape key
   useEffect(() => {
-    if (!mobileOpen) return;
+    if (!isMobileOpen) return;
     const handleKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onMobileToggle();
+      if (e.key === 'Escape') closeMobileDrawer();
     };
     window.addEventListener('keydown', handleKey);
     return () => window.removeEventListener('keydown', handleKey);
-  }, [mobileOpen, onMobileToggle]);
+  }, [isMobileOpen, closeMobileDrawer]);
 
   const isMobile = typeof window !== 'undefined' && window.innerWidth < 1024;
+
+  // Compute active state from location pathname (no hooks inside loops)
+  const isActive = (path: string) => {
+    if (path === '/') return location.pathname === '/';
+    return location.pathname === path;
+  };
 
   return (
     <>
       {/* Mobile backdrop */}
-      {mobileOpen && isMobile && (
+      {isMobileOpen && isMobile && (
         <div
           className="fixed inset-0 z-30 bg-black/40 backdrop-blur-sm lg:hidden"
-          onClick={handleCloseMobile}
+          onClick={closeMobileDrawer}
           aria-hidden="true"
         />
       )}
@@ -87,7 +90,8 @@ export default function Sidebar({
       {/* Desktop sidebar (always visible on lg+) */}
       <aside
         className={`fixed left-0 top-0 h-[100dvh] bg-[var(--color-surface)] border-r border-[var(--color-border)]
-          text-[var(--color-text)] transition-all duration-300 z-40 flex flex-col w-20 lg:w-60
+          text-[var(--color-text)] transition-all duration-300 z-40 flex flex-col
+          ${collapsed ? 'w-16' : 'lg:w-60 w-20'}
           ${isMobile ? 'hidden lg:block' : ''}`}
         aria-label="Main navigation"
       >
@@ -101,7 +105,8 @@ export default function Sidebar({
             <button
               onClick={handleCollapseToggle}
               aria-label={collapsed ? 'Expand navigation' : 'Collapse navigation'}
-              className="p-2 rounded hover:bg-[var(--color-border)]/50 transition"
+              aria-expanded={!collapsed}
+              className="p-2 rounded hover:bg-[var(--color-border)]/50 transition focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] focus-visible:ring-offset-2"
               title={collapsed ? 'Expand navigation' : 'Collapse navigation'}
             >
               <ChevronLeft className={`w-4 h-4 ${collapsed ? 'rotate-180' : ''}`} />
@@ -109,7 +114,7 @@ export default function Sidebar({
             <button
               onClick={toggleTheme}
               aria-label="Toggle theme"
-              className="p-2 rounded hover:bg-[var(--color-border)]/50 transition"
+              className="p-2 rounded hover:bg-[var(--color-border)]/50 transition focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] focus-visible:ring-offset-2"
             >
               {theme === 'light' ? <Moon className="w-5 h-5" /> : <Sun className="w-5 h-5" />}
             </button>
@@ -118,26 +123,26 @@ export default function Sidebar({
 
         <nav className="flex-1 overflow-y-auto px-2 py-4 space-y-1">
           {navItems.map((item) => {
-            const match = useMatch(item.path);
             const Icon = iconMap[item.icon];
-            const isActive = !!match;
+            const active = isActive(item.path);
             return (
               <button
                 key={item.path}
                 onClick={() => handleNavClick(item.path)}
-                aria-current={isActive ? 'page' : undefined}
+                aria-current={active ? 'page' : undefined}
                 aria-label={item.label}
+                type="button"
                 className={`flex items-center gap-3 w-full px-3 py-2.5 rounded-lg text-sm font-medium transition group ${
-                  isActive
+                  active
                     ? 'bg-[var(--color-accent)] text-white shadow-sm'
                     : 'hover:bg-[var(--color-border)]/50 text-[var(--color-text)]'
-                }`}
+                } focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] focus-visible:ring-offset-2`}
               >
                 <div className="flex items-center justify-center w-6">
                   <Icon className="w-5 h-5" />
                 </div>
                 {!collapsed && (
-                  <span className={isActive ? 'font-semibold' : 'font-normal'}>
+                  <span className={active ? 'font-semibold' : 'font-normal'}>
                     {item.label}
                   </span>
                 )}
@@ -167,11 +172,11 @@ export default function Sidebar({
       </aside>
 
       {/* Mobile drawer */}
-      {mobileOpen && isMobile && (
+      {isMobileOpen && isMobile && (
         <>
           <div
             className="fixed inset-0 z-30 bg-black/40 backdrop-blur-sm lg:hidden"
-            onClick={handleCloseMobile}
+            onClick={closeMobileDrawer}
             aria-hidden="true"
           />
           <aside
@@ -179,37 +184,39 @@ export default function Sidebar({
               text-[var(--color-text)] z-50 flex flex-col lg:hidden transform transition-transform duration-300
               translate-x-0"
             aria-label="Mobile navigation drawer"
+            role="navigation"
           >
             <div className="flex items-center justify-between h-14 px-4 border-b border-[var(--color-border)] bg-[var(--color-surface)]">
               <span className="font-bold text-xl tracking-tight">
                 PHOTO<span className="text-[var(--color-accent)]">STUDIO</span> AI
               </span>
               <button
-                onClick={handleCloseMobile}
+                onClick={closeMobileDrawer}
                 aria-label="Close navigation"
-                className="p-2 rounded hover:bg-[var(--color-border)]/50"
+                className="p-2 rounded hover:bg-[var(--color-border)]/50 focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] focus-visible:ring-offset-2"
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
             <nav className="flex-1 overflow-y-auto px-4 py-4 space-y-1">
               {navItems.map((item) => {
-                const match = useMatch(item.path);
                 const Icon = iconMap[item.icon];
-                const isActive = !!match;
+                const active = isActive(item.path);
                 return (
                   <button
                     key={item.path}
                     onClick={() => handleNavClick(item.path)}
-                    aria-current={isActive ? 'page' : undefined}
+                    aria-current={active ? 'page' : undefined}
+                    aria-label={item.label}
+                    type="button"
                     className={`flex items-center gap-3 w-full px-3 py-3 rounded-lg text-sm font-medium transition ${
-                      isActive
+                      active
                         ? 'bg-[var(--color-accent)] text-white shadow-sm'
                         : 'hover:bg-[var(--color-border)]/50 text-[var(--color-text)]'
-                    }`}
+                    } focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] focus-visible:ring-offset-2`}
                   >
                     <Icon className="w-5 h-5" />
-                    <span className={isActive ? 'font-semibold' : 'font-normal'}>{item.label}</span>
+                    <span className={active ? 'font-semibold' : 'font-normal'}>{item.label}</span>
                   </button>
                 );
               })}

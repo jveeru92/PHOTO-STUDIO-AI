@@ -1,5 +1,5 @@
-const { record, canProceed } = require('../quota-manager');
-const Cloudflare = require('../providers/cloudflare');
+const { record, canProceed } = require('./quota-manager');
+const Cloudflare = require('./providers/cloudflare');
 
 module.exports.handler = async (event) => {
   if (event.httpMethod !== 'POST') return { statusCode: 405, body: JSON.stringify({ error: 'Method not allowed' }) };

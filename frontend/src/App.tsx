@@ -12,16 +12,19 @@ import ProjectsPage from '@/pages/Projects';
 import SettingsPage from '@/pages/Settings';
 
 export default function App() {
-  const [mobileOpen, setMobileOpen] = useState(false);
+  const [isMobileOpen, setIsMobileOpen] = useState(false);
 
   return (
     <ThemeProvider>
       <AppProvider>
         <BrowserRouter>
           <div className="min-h-[100dvh]">
-            <Sidebar mobileOpen={mobileOpen} onMobileToggle={() => setMobileOpen((p) => !p)} />
+            <Sidebar
+              isMobileOpen={isMobileOpen}
+              closeMobileDrawer={() => setIsMobileOpen(false)}
+            />
             <div className="flex-1 flex flex-col min-h-[100dvh] bg-[var(--color-bg)] text-[var(--color-text)] transition-colors duration-300">
-              <Topbar onMenuToggle={() => setMobileOpen((p) => !p)} />
+              <Topbar openMobileDrawer={() => setIsMobileOpen(true)} />
               <main className="flex-1 overflow-y-auto p-4 md:p-6 lg:p-8">
                 <Routes>
                   <Route path="/" element={<Dashboard />} />

@@ -8,16 +8,59 @@
   command = "cd frontend && npm run dev"
   port = 8888
   functions = "functions"
-  framework = "#vite"
+  framework = "vite"
 
 [functions]
   node_bundler = "esbuild"
 
+# API routes must be declared BEFORE the SPA catch-all so they are not
+# intercepted by the frontend fallback.
 [[redirects]]
-  from = "/api/*"
-  to = "/.netlify/functions/api/:splat"
+  from = "/api/health"
+  to = "/.netlify/functions/health"
   status = 200
 
+[[redirects]]
+  from = "/api/quota"
+  to = "/.netlify/functions/quota"
+  status = 200
+
+[[redirects]]
+  from = "/api/chat"
+  to = "/.netlify/functions/chat"
+  status = 200
+
+[[redirects]]
+  from = "/api/image-generate"
+  to = "/.netlify/functions/image-generate"
+  status = 200
+
+[[redirects]]
+  from = "/api/image-edit"
+  to = "/.netlify/functions/image-edit"
+  status = 200
+
+[[redirects]]
+  from = "/api/segment"
+  to = "/.netlify/functions/segment"
+  status = 200
+
+[[redirects]]
+  from = "/api/upload"
+  to = "/.netlify/functions/upload"
+  status = 200
+
+[[redirects]]
+  from = "/api/projects"
+  to = "/.netlify/functions/projects"
+  status = 200
+
+[[redirects]]
+  from = "/api/conversations"
+  to = "/.netlify/functions/conversations"
+  status = 200
+
+# SPA fallback — last, so API routes take priority
 [[redirects]]
   from = "/*"
   to = "/index.html"

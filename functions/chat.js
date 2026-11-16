@@ -1,7 +1,7 @@
-const { getProviderStatus, record, canProceed } = require('../quota-manager');
-const Gemini = require('../providers/gemini');
-const OpenRouter = require('../providers/openrouter');
-const Cloudflare = require('../providers/cloudflare');
+const { getProviderStatus, record, canProceed } = require('./quota-manager');
+const Gemini = require('./providers/gemini');
+const OpenRouter = require('./providers/openrouter');
+const Cloudflare = require('./providers/cloudflare');
 
 // in-memory conversations (per container; durable storage needs a configured DB)
 const conversations = new Map();
@@ -40,8 +40,6 @@ module.exports.handler = async (event) => {
   conv.messages.push({ id: 'u-' + Date.now(), role: 'user', content: message, createdAt: new Date().toISOString(), attachments, inputImageUrl: attachments.find((a) => a.kind === 'image')?.dataUrl });
   conv.updatedAt = new Date().toISOString();
 
-  const results = [];
-
   // Try conversational AI (Gemini first, OpenRouter fallback) to interpret.
   // Zero-spend: check quota BEFORE calling any provider. Never fall back to paid.
   let assistantText = null;
@@ -50,7 +48,6 @@ module.exports.handler = async (event) => {
     if (!Provider.configured) continue;
     const proceed = canProceed('chat', Provider.name);
     if (!proceed.allowed) {
-      // Provider unavailable/quota-exhausted — try the next free provider.
       continue;
     }
     try {
@@ -60,7 +57,6 @@ module.exports.handler = async (event) => {
       record('chat', Provider.name, 1, 0);
       break;
     } catch (err) {
-      // Provider error — try the next free provider.
       continue;
     }
   }
