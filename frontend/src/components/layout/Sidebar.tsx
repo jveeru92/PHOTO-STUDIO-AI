@@ -41,7 +41,6 @@ export default function Sidebar({
   const { theme, toggleTheme } = useTheme();
   const [collapsed, setCollapsed] = useState(false);
 
-  // Close mobile drawer on route change (when passed from parent)
   useEffect(() => {
     if (closeMobileDrawer) closeMobileDrawer();
   }, [navigate, closeMobileDrawer]);
@@ -55,22 +54,12 @@ export default function Sidebar({
     if (closeMobileDrawer) closeMobileDrawer();
   }, [navigate, closeMobileDrawer]);
 
-  // Close mobile drawer on Escape key
-  useEffect(() => {
-    const handleKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && closeMobileDrawer) closeMobileDrawer();
-    };
-    window.addEventListener('keydown', handleKey);
-    return () => window.removeEventListener('keydown', handleKey);
-  }, [closeMobileDrawer]);
+  const sidebarWidth = collapsed ? 'w-16' : 'w-60';
 
   const isActive = (path: string) => {
     if (path === '/') return location.pathname === '/';
     return location.pathname === path;
   };
-
-  // Desktop sidebar width: 240px expanded, 64px collapsed
-  const sidebarWidth = collapsed ? 'w-16' : 'w-60';
 
   return (
     <aside

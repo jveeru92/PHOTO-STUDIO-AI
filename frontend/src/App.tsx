@@ -58,9 +58,9 @@ const MobileDrawer = ({
         />
       )}
       <aside
-        className="fixed left-0 top-0 h-[100dvh] w-64 bg-[var(--color-surface)] border-r border-[var(--color-border)]
+        className={`fixed left-0 top-0 h-[100dvh] w-64 bg-[var(--color-surface)] border-r border-[var(--color-border)]
           text-[var(--color-text)] z-50 flex flex-col lg:hidden transform transition-transform duration-300
-          translate-x-0"
+          ${isMobileOpen ? 'translate-x-0' : '-translate-x-full'}`}
         aria-label="Mobile navigation drawer"
         role="navigation"
       >
