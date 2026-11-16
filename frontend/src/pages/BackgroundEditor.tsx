@@ -6,6 +6,7 @@ import { useBackgroundEditor } from '@/hooks/useBackgroundEditor';
 import CanvasEditor from '@/components/editor/CanvasEditor';
 import type { ManualAdjustments } from '@/types';
 import { DEFAULT_ADJUSTMENTS } from '@/utils/image';
+import { PageWrapper } from '@/components/layout/PageWrapper';
 
 export default function BackgroundEditor() {
   const {
@@ -26,7 +27,8 @@ export default function BackgroundEditor() {
   };
 
   return (
-    <div className="h-full flex flex-col lg:flex-row gap-0">
+    <PageWrapper pageName="Background Editor">
+      <div className="h-full flex flex-col lg:flex-row gap-0">
       {/* Controls */}
       <div className="w-full lg:w-72 border-r border-[var(--color-border)] bg-[var(--color-surface)] p-4 lg:p-6 flex flex-col h-full">
         <div className="flex items-center gap-2 mb-4">
@@ -145,5 +147,6 @@ export default function BackgroundEditor() {
         />
       </div>
     </div>
+    </PageWrapper>
   );
 }

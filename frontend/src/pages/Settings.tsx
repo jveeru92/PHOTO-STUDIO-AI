@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
 import { useApp } from '@/context/AppContext';
 import { Sun, Moon, ShieldAlert } from 'lucide-react';
+import { PageWrapper } from '@/components/layout/PageWrapper';
 
 export default function Settings() {
   const { theme, toggleTheme, setTheme } = useTheme();
@@ -11,7 +12,8 @@ export default function Settings() {
   const zeroSpend = true;
 
   return (
-    <div className="space-y-6">
+    <PageWrapper pageName="Settings">
+      <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-bold text-[var(--color-text)]">Settings</h1>
         <p className="text-[var(--color-muted)] mt-1">Appearance, privacy and zero-spend controls.</p>
@@ -112,5 +114,6 @@ export default function Settings() {
         </CardContent>
       </Card>
     </div>
+    </PageWrapper>
   );
 }

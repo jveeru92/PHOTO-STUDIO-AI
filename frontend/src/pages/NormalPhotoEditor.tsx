@@ -10,6 +10,7 @@ import ImageGallery from '@/components/chat/ImageGallery';
 import CanvasEditor from '@/components/editor/CanvasEditor';
 import type { ManualAdjustments } from '@/types';
 import { DEFAULT_ADJUSTMENTS } from '@/utils/image';
+import { PageWrapper } from '@/components/layout/PageWrapper';
 
 export default function NormalPhotoEditor() {
   const { project } = useParams<{ project?: string }>();
@@ -110,52 +111,54 @@ export default function NormalPhotoEditor() {
   };
 
   return (
-    <div className="h-full flex flex-col lg:flex-row gap-0">
-      {/* Conversation area */}
-      <div className="flex-1 flex flex-col min-w-0 bg-[var(--color-surface)] border-r border-[var(--color-border)] lg:border-r-0">
-        <div className="flex-1 overflow-y-auto border-b border-[var(--color-border)] lg:border-b-0 p-4 lg:p-6" ref={scrollRef}>
-          <MessageList messages={messages} onRegenerate={handleRegenerate} />
-          <ImageGallery images={messages} onDownload={handleDownload} />
-        </div>
-        <PromptInput
-          value={input}
-          onChange={setInput}
-          onSend={handleSend}
-          disabled={sending}
-          attachments={attachments}
-          onRemoveAttachment={removeAttachment}
-          onAttach={handleAttach}
-          sending={sending}
-          onStop={() => setSending(false)}
-        />
-      </div>
-
-      {/* Refinement panel */}
-      <div className="w-full lg:w-96 border-l border-[var(--color-border)] bg-[var(--color-surface)] p-4 lg:p-6 flex flex-col">
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-sm font-semibold text-[var(--color-text)]">Manual refinement</h2>
-          <span className="text-xs text-[var(--color-muted)]">Works offline</span>
-        </div>
-        <Card className="flex-1">
-          <CanvasEditor
-            imageUrl={selectedImage}
-            adjustments={edits}
-            onAdjustmentChange={(k: keyof ManualAdjustments, v: number) => setEdits((p) => ({ ...p, [k]: v }))}
-            onCommit={(dataUrl: string) => {
-              setMessages((prev) => [...prev, {
-                id: 'manual-' + Date.now(), role: 'assistant', content: 'Manual adjustment applied',
-                createdAt: new Date().toISOString(), imageUrl: dataUrl,
-              }]);
-              setSelectedImage(dataUrl);
-            }}
-            onUndo={() => {}}
-            onRedo={() => {}}
-            onReset={() => setEdits(DEFAULT_ADJUSTMENTS)}
-            canUndo={false}
-            canRedo={false}
+    <PageWrapper pageName="Normal Photo Editor">
+      <div className="h-full flex flex-col lg:flex-row gap-0">
+        {/* Conversation area */}
+        <div className="flex-1 flex flex-col min-w-0 bg-[var(--color-surface)] border-r border-[var(--color-border)] lg:border-r-0">
+          <div className="flex-1 overflow-y-auto border-b border-[var(--color-border)] lg:border-b-0 p-4 lg:p-6" ref={scrollRef}>
+            <MessageList messages={messages} onRegenerate={handleRegenerate} />
+            <ImageGallery images={messages} onDownload={handleDownload} />
+          </div>
+          <PromptInput
+            value={input}
+            onChange={setInput}
+            onSend={handleSend}
+            disabled={sending}
+            attachments={attachments}
+            onRemoveAttachment={removeAttachment}
+            onAttach={handleAttach}
+            sending={sending}
+            onStop={() => setSending(false)}
           />
-        </Card>
+        </div>
+
+        {/* Refinement panel */}
+        <div className="w-full lg:w-96 border-l border-[var(--color-border)] bg-[var(--color-surface)] p-4 lg:p-6 flex flex-col">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-sm font-semibold text-[var(--color-text)]">Manual refinement</h2>
+            <span className="text-xs text-[var(--color-muted)]">Works offline</span>
+          </div>
+          <Card className="flex-1">
+            <CanvasEditor
+              imageUrl={selectedImage}
+              adjustments={edits}
+              onAdjustmentChange={(k: keyof ManualAdjustments, v: number) => setEdits((p) => ({ ...p, [k]: v }))}
+              onCommit={(dataUrl: string) => {
+                setMessages((prev) => [...prev, {
+                  id: 'manual-' + Date.now(), role: 'assistant', content: 'Manual adjustment applied',
+                  createdAt: new Date().toISOString(), imageUrl: dataUrl,
+                }]);
+                setSelectedImage(dataUrl);
+              }}
+              onUndo={() => {}}
+              onRedo={() => {}}
+              onReset={() => setEdits(DEFAULT_ADJUSTMENTS)}
+              canUndo={false}
+              canRedo={false}
+            />
+          </Card>
+        </div>
       </div>
-    </div>
+    </PageWrapper>
   );
 }

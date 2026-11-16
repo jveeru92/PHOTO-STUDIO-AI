@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/Button';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card';
 import { api } from '@/services/api';
 import { storage } from '@/services/storage';
+import { PageWrapper } from '@/components/layout/PageWrapper';
 
 export default function ProjectsPage() {
   const [projects, setProjects] = useState<any[]>([]);
@@ -52,7 +53,8 @@ export default function ProjectsPage() {
   );
 
   return (
-    <div className="space-y-6">
+    <PageWrapper pageName="Recent Projects">
+      <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-[var(--color-text)]">Recent Projects</h1>
@@ -92,5 +94,6 @@ export default function ProjectsPage() {
         </div>
       )}
     </div>
+    </PageWrapper>
   );
 }

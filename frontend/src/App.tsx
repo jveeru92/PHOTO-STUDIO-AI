@@ -12,6 +12,8 @@ import NormalPhotoEditor from '@/pages/NormalPhotoEditor';
 import BackgroundEditor from '@/pages/BackgroundEditor';
 import ProjectsPage from '@/pages/Projects';
 import SettingsPage from '@/pages/Settings';
+import { ErrorBoundary } from '@/components/ui/ErrorBoundary';
+import { AppLoading, AppError } from '@/components/ui/AppStates';
 
 const navItems = [
   { path: '/', label: 'Dashboard', icon: 'LayoutDashboard' },
@@ -38,8 +40,15 @@ const ItemIcon = ({ icon, className }: { icon: string; className?: string }) => 
 
 export default function App() {
   const [isMobileOpen, setIsMobileOpen] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+  const [startupError, setStartupError] = useState<Error | null>(null);
   const location = useLocation();
   const navigate = useNavigate();
+
+  // Mark loading complete once mounted
+  useEffect(() => {
+    setIsLoading(false);
+  }, []);
 
   // Lock body scroll when mobile drawer is open
   useEffect(() => {
@@ -55,6 +64,34 @@ export default function App() {
 
   const openMobileDrawer = useCallback(() => setIsMobileOpen(true), []);
   const closeMobileDrawer = useCallback(() => setIsMobileOpen(false), []);
+  const clearError = useCallback(() => setStartupError(null), []);
+
+  const handleError = useCallback((error: Error) => {
+    console.error('Photo Studio AI error:', error);
+    setStartupError(error);
+  }, []);
+
+  if (isLoading) {
+    return (
+      <ThemeProvider>
+        <AppLoading />
+      </ThemeProvider>
+    );
+  }
+
+  if (startupError) {
+    return (
+      <ThemeProvider>
+        <div className="flex min-h-[100dvh] w-full">
+          <Sidebar closeMobileDrawer={closeMobileDrawer} />
+          <div className="flex-1 flex flex-col min-w-0">
+            <Topbar openMobileDrawer={openMobileDrawer} />
+            <AppError error={startupError} retry={clearError} />
+          </div>
+        </div>
+      </ThemeProvider>
+    );
+  }
 
   return (
     <ThemeProvider>
@@ -116,17 +153,19 @@ export default function App() {
                   <div className="text-xs text-[var(--color-muted)]">Zero-spend · Remote AI</div>
                 </div>
               </aside>
-              <Topbar openMobileDrawer={openMobileDrawer} />
-              <main className="flex-1 overflow-y-auto min-w-0 p-4 md:p-6 lg:p-8">
-                <Routes>
-                  <Route path="/" element={<Dashboard />} />
-                  <Route path="/passport" element={<PassportStudio />} />
-                  <Route path="/editor" element={<NormalPhotoEditor />} />
-                  <Route path="/background" element={<BackgroundEditor />} />
-                  <Route path="/projects" element={<ProjectsPage />} />
-                  <Route path="/settings" element={<SettingsPage />} />
-                </Routes>
-              </main>
+              <ErrorBoundary onError={handleError} resetKeys={[location.pathname]}>
+                <Topbar openMobileDrawer={openMobileDrawer} />
+                <main className="flex-1 overflow-y-auto min-w-0 p-4 md:p-6 lg:p-8">
+                  <Routes>
+                    <Route path="/" element={<Dashboard />} />
+                    <Route path="/passport" element={<PassportStudio />} />
+                    <Route path="/editor" element={<NormalPhotoEditor />} />
+                    <Route path="/background" element={<BackgroundEditor />} />
+                    <Route path="/projects" element={<ProjectsPage />} />
+                    <Route path="/settings" element={<SettingsPage />} />
+                  </Routes>
+                </main>
+              </ErrorBoundary>
             </div>
           </div>
         </BrowserRouter>
