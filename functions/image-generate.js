@@ -1,4 +1,4 @@
-const { record, canProceed } = require('./quota-manager');
+const { record, canProceed } = require('../backend/quota-manager');
 const Cloudflare = require('./providers/cloudflare');
 
 module.exports.handler = async (event) => {

@@ -1,4 +1,4 @@
-const { getProviderStatus, record, canProceed } = require('./quota-manager');
+const { getProviderStatus, record, canProceed } = require('../backend/quota-manager');
 const Gemini = require('./providers/gemini');
 const OpenRouter = require('./providers/openrouter');
 const Cloudflare = require('./providers/cloudflare');
