@@ -3,7 +3,11 @@ import { Bell, HelpCircle, Maximize, Menu, Moon, Sun } from 'lucide-react';
 import { useTheme } from '@/context/ThemeContext';
 import { useApp } from '@/context/AppContext';
 
-export default function Topbar() {
+export default function Topbar({
+  onMenuToggle,
+}: {
+  onMenuToggle: () => void;
+}) {
   const location = useLocation();
   const { theme, toggleTheme } = useTheme();
   const { providerQuota, refreshQuota } = useApp();
@@ -26,6 +30,7 @@ export default function Topbar() {
     <header className="h-16 border-b border-[var(--color-border)] bg-[var(--color-surface)]/90 backdrop-blur flex items-center justify-between px-4 lg:px-6 shrink-0 z-10 sticky top-0">
       <div className="flex items-center gap-4">
         <button
+          onClick={onMenuToggle}
           aria-label="Open menu"
           className="md:hidden p-2 rounded hover:bg-[var(--color-border)]/50"
         >

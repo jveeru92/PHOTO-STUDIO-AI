@@ -1,4 +1,5 @@
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import { useState } from 'react';
 import { ThemeProvider } from '@/context/ThemeContext';
 import { AppProvider } from '@/context/AppContext';
 import Sidebar from '@/components/layout/Sidebar';
@@ -11,14 +12,16 @@ import ProjectsPage from '@/pages/Projects';
 import SettingsPage from '@/pages/Settings';
 
 export default function App() {
+  const [mobileOpen, setMobileOpen] = useState(false);
+
   return (
     <ThemeProvider>
       <AppProvider>
         <BrowserRouter>
           <div className="min-h-[100dvh]">
-            <Sidebar />
+            <Sidebar mobileOpen={mobileOpen} onMobileToggle={() => setMobileOpen((p) => !p)} />
             <div className="flex-1 flex flex-col min-h-[100dvh] bg-[var(--color-bg)] text-[var(--color-text)] transition-colors duration-300">
-              <Topbar />
+              <Topbar onMenuToggle={() => setMobileOpen((p) => !p)} />
               <main className="flex-1 overflow-y-auto p-4 md:p-6 lg:p-8">
                 <Routes>
                   <Route path="/" element={<Dashboard />} />
