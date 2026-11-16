@@ -26,10 +26,10 @@ git push -u origin main
 1. Go to https://app.netlify.com/
 2. "Add new site" → "Import an existing project" → GitHub
 3. Select `photo-studio-ai`.
-4. Build settings (detected automatically from netlify.toml):
-   - Base directory: `frontend`
-   - Build command: `npm ci && npm run build` (netlify.toml runs `npm run build`)
-   - Publish directory: `dist`
+4. Build settings (from netlify.toml):
+   - Base directory: repository root (leave blank / ".")
+   - Build command: `cd frontend && npm ci && npm run build`
+   - Publish directory: `frontend/dist`
    - Functions directory: `functions`
 5. Click "Deploy site".
 
@@ -37,12 +37,13 @@ git push -u origin main
 In Netlify: Site settings → Environment variables → Add variable.
 Add each variable from `.env.example` that you have a value for:
 
-- `ZERO_SPEND_MODE = TRUE`
+- `ZERO_SPEND_MODE = TRUE` (required — enforces zero-spend on the backend)
 - `GEMINI_API_KEY` (from https://aistudio.google.com/ — optional)
 - `OPENROUTER_API_KEY` (from https://openrouter.ai/ — optional)
 - `CLOUDFLARE_API_TOKEN` + `CLOUDFLARE_ACCOUNT_ID` (from https://dash.cloudflare.com/ — optional)
 - `CLOUDFLARE_IMAGE_MODEL = @cf/black-forest-labs/flux-2-klein-4b`
 - `SEGMENTATION_API_URL` / `SEGMENTATION_API_KEY` (optional)
+- `APP_URL` (set to your Netlify production URL after deployment; optional)
 
 Leave blank any you do not have. The app still works for manual editing, Passport Studio, and Background Editor without AI keys.
 
@@ -51,5 +52,12 @@ Trigger a redeploy after adding variables so the functions pick them up.
 
 ## Zero-spend verification
 - No billing method is added to any provider account.
-- `ZERO_SPEND_MODE=TRUE` is enforced in every backend function.
+- `ZERO_SPEND_MODE=TRUE` is enforced in every backend function (chat, image-generate, quota).
 - If free quota is exhausted, the function returns a clear quota-exhausted response and never falls back to paid usage.
+- No paid fallback exists anywhere in the code.
+
+## Project storage (important)
+Project data is stored in the browser's IndexedDB (localStorage fallback) by default —
+this is per-device, not synced across devices. There is no cloud database configured.
+Do not advertise cross-device synchronisation. A real authenticated cloud-storage
+implementation (e.g. Cloudflare D1) can be added later behind the same storage interface.

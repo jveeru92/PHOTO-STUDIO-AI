@@ -1,7 +1,7 @@
-const { getProviderStatus, record, canProceed } = require('../../quota-manager');
-const Gemini = require('../../providers/gemini');
-const OpenRouter = require('../../providers/openrouter');
-const Cloudflare = require('../../providers/cloudflare');
+const { getProviderStatus, record, canProceed } = require('../quota-manager');
+const Gemini = require('../providers/gemini');
+const OpenRouter = require('../providers/openrouter');
+const Cloudflare = require('../providers/cloudflare');
 
 // in-memory conversations (per container; durable storage needs a configured DB)
 const conversations = new Map();
@@ -42,11 +42,17 @@ module.exports.handler = async (event) => {
 
   const results = [];
 
-  // Try conversational AI (Gemini first, OpenRouter fallback) to interpret
+  // Try conversational AI (Gemini first, OpenRouter fallback) to interpret.
+  // Zero-spend: check quota BEFORE calling any provider. Never fall back to paid.
   let assistantText = null;
   let usedProvider = null;
   for (const Provider of [Gemini, OpenRouter]) {
     if (!Provider.configured) continue;
+    const proceed = canProceed('chat', Provider.name);
+    if (!proceed.allowed) {
+      // Provider unavailable/quota-exhausted — try the next free provider.
+      continue;
+    }
     try {
       const interp = await Provider.interpret({ message, attachments, conversationHistory: conv.messages.slice(0, -1) });
       assistantText = interp.text;
@@ -54,7 +60,7 @@ module.exports.handler = async (event) => {
       record('chat', Provider.name, 1, 0);
       break;
     } catch (err) {
-      // try next provider
+      // Provider error — try the next free provider.
       continue;
     }
   }
@@ -99,3 +105,5 @@ module.exports.handler = async (event) => {
     body: JSON.stringify({ conversationId: conv.id, messages: conv.messages }),
   };
 };
+
+module.exports.conversations = conversations;

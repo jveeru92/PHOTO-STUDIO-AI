@@ -1,4 +1,4 @@
-const { getProviderStatus, ZERO_SPEND_MODE } = require('../../quota-manager');
+const { getProviderStatus, ZERO_SPEND_MODE } = require('../quota-manager');
 
 module.exports.handler = async () => {
   return {

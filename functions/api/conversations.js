@@ -1,4 +1,4 @@
-const { conversations } = require('../chat');
+const { conversations } = require('./chat');
 
 function cors() {
   return { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' };

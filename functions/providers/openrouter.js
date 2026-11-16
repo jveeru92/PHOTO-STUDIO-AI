@@ -31,7 +31,7 @@ module.exports = {
       headers: {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${process.env.OPENROUTER_API_KEY}`,
-        'HTTP-Referer': process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:8888',
+        'HTTP-Referer': process.env.APP_URL || 'http://localhost:8888',
         'X-Title': 'Photo Studio AI',
       },
       body: JSON.stringify(body),
