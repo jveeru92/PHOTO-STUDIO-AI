@@ -1,0 +1,53 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --color-bg: #fafafa;
+    --color-surface: #ffffff;
+    --color-border: #e4e4e7;
+    --color-text: #171717;
+    --color-muted: #71717a;
+    --color-accent: #8b5cf6;
+  }
+
+  .theme-dark {
+    --color-bg: #08090c;
+    --color-surface: #0b0c10;
+    --color-border: #1f232e;
+    --color-text: #fafafa;
+    --color-muted: #a1a1aa;
+    --color-accent: #b484ff;
+  }
+}
+
+html, body, #root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  font-family: Inter, system-ui, sans-serif;
+  background-color: var(--color-bg);
+  color: var(--color-text);
+  transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+.theme-dark body { }
+
+a { color: inherit; }
+
+button {
+  font-family: inherit;
+}
+
+/* Hide scrollbar for gallery areas but keep function */
+.no-scrollbar::-webkit-scrollbar { display: none; }
+.no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+
+/* Image preview containers */
+.image-frame {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+}
