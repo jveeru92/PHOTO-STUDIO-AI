@@ -1,10 +1,10 @@
 import { useCallback, useMemo, useRef, useState } from 'react';
 import type { PassportSettings } from '@/types';
 import {
-  autoSegmentImageData,
   clamp0255,
   compositeOverColor,
 } from '@/utils/image';
+import { segmentImage } from '@/utils/segmentation';
 
 export const DEFAULT_PASSPORT_SETTINGS: PassportSettings = {
   sheetWidthIn: 6,
@@ -88,8 +88,9 @@ export function usePassportStudio() {
       tmpCtx.drawImage(sourceImage, 0, 0);
       const imageData = tmpCtx.getImageData(0, 0, sourceImage.naturalWidth, sourceImage.naturalHeight);
 
-      // Segment: background = flood-fill from border, foreground = everything else
-      const { fgImageData: rawFgImageData } = autoSegmentImageData(imageData, 40);
+      // Segment: use MediaPipe selfie segmentation with flood-fill fallback.
+      // MediaPipe handles subjects touching the frame edge (unlike flood-fill alone).
+      const { fgImageData: rawFgImageData } = segmentImage(imageData, 40);
 
       segCache.current = {
         source: sourceImage,

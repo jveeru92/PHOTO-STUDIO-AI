@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   brushStroke,
   compositeOverColor,
@@ -27,7 +27,7 @@ export function useBackgroundEditor() {
     width: number;
     height: number;
   };
-  const [segCache, setSegCache] = useState<SegCache | null>(null);
+  const segCacheRef = useRef<SegCache | null>(null);
 
   // Manual mask edits: array of brush strokes applied on top of base mask
   const [manualEdits, setManualEdits] = useState<Array<{
@@ -66,7 +66,7 @@ export function useBackgroundEditor() {
       const imageData = ctx.getImageData(0, 0, img.naturalWidth, img.naturalHeight);
 
       // Get segmentation mask (use cache if same source image)
-      let seg = segCache;
+      let seg = segCacheRef.current;
       if (!seg || seg.sourceUrl !== sourceUrl) {
         const result = segmentImage(imageData, threshold);
         seg = {
@@ -76,7 +76,7 @@ export function useBackgroundEditor() {
           width: img.naturalWidth,
           height: img.naturalHeight,
         };
-        setSegCache(seg);
+        segCacheRef.current = seg;
         setSegmentationMethod(result.method);
       }
 
@@ -143,7 +143,7 @@ export function useBackgroundEditor() {
     } finally {
       setIsSegmenting(false);
     }
-  }, [sourceUrl, bgColor, feather, threshold, segCache, manualEdits, transparent]);
+  }, [sourceUrl, bgColor, feather, threshold, manualEdits, transparent]);
 
   const applyBrush = useCallback(
     (cx: number, cy: number, radius: number, value: number, softness: number = 0) => {
@@ -159,7 +159,7 @@ export function useBackgroundEditor() {
   const resetAll = useCallback(() => {
     setManualEdits([]);
     setResultUrl(null);
-    setSegCache(null);
+    segCacheRef.current = null;
   }, []);
 
   return {

@@ -102,17 +102,52 @@ export function segmentImage(
 
       // MediaPipe categoryMask: use the documented Mask API (getAsFloat32Array)
       // Category indices: 0 = background, 1 = foreground
+      //
+      // IMPORTANT: MediaPipe outputs the mask at MODEL resolution (e.g. 256x256),
+      // NOT at the source image resolution. We must read the mask at its native
+      // dimensions and upscale it to match the source image.
       let maskBuf: Float32Array;
+      let maskW: number;
+      let maskH: number;
       if (typeof categoryMask.getAsFloat32Array === 'function') {
         maskBuf = categoryMask.getAsFloat32Array();
+        maskW = (categoryMask as any).width ?? width;
+        maskH = (categoryMask as any).height ?? height;
       } else {
         // Fallback for environments where categoryMask is already a typed array
         maskBuf = new Float32Array((categoryMask as any).buffer);
+        maskW = width;
+        maskH = height;
       }
-      const mask = new Uint8ClampedArray(width * height);
+
+      // Draw the model-resolution mask onto a small canvas, then upscale it
+      // to the source image dimensions using drawImage (bilinear filtering).
+      const maskCanvas = document.createElement('canvas');
+      maskCanvas.width = maskW;
+      maskCanvas.height = maskH;
+      const maskCtx = maskCanvas.getContext('2d')!;
+      const maskImageData = maskCtx.createImageData(maskW, maskH);
+      for (let i = 0; i < maskW * maskH; i++) {
+        const v = maskBuf[i] > 0 ? 255 : 0;
+        maskImageData.data[i * 4] = v;
+        maskImageData.data[i * 4 + 1] = v;
+        maskImageData.data[i * 4 + 2] = v;
+        maskImageData.data[i * 4 + 3] = 255;
+      }
+      maskCtx.putImageData(maskImageData, 0, 0);
+
+      const upscaledMask = new Uint8ClampedArray(width * height);
+      const upscaleCanvas = document.createElement('canvas');
+      upscaleCanvas.width = width;
+      upscaleCanvas.height = height;
+      const upscaleCtx = upscaleCanvas.getContext('2d')!;
+      upscaleCtx.drawImage(maskCanvas, 0, 0, maskW, maskH, 0, 0, width, height);
+      const upscaledData = upscaleCtx.getImageData(0, 0, width, height).data;
       for (let i = 0; i < width * height; i++) {
-        mask[i] = maskBuf[i] > 0 ? 255 : 0;
+        upscaledMask[i] = upscaledData[i * 4] > 127 ? 255 : 0;
       }
+
+      const mask = upscaledMask;
 
       // Build foreground image: premultiply RGB by alpha, set alpha from mask
       const fg = new Uint8ClampedArray(data.length);
