@@ -180,7 +180,7 @@ export default function PassportStudio() {
         </div>
         <p className="text-xs text-[var(--color-muted)] mb-4">Adjust the source before the sheet regenerates. Identity preserved.</p>
         <CanvasEditor
-          imageUrl={sourceImage ? (previewRef.current ? previewRef.current.src : null) : null}
+          imageUrl={sourceImage ? sourceImage.src : null}
           adjustments={manualEdits}
           onAdjustmentChange={(k: keyof ManualAdjustments, v: number) => setManualEdits((p) => ({ ...p, [k]: v }))}
           onCommit={(dataUrl: string) => {

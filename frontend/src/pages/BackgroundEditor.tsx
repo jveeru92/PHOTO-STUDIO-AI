@@ -56,12 +56,12 @@ export default function BackgroundEditor() {
     setIsMaskEditing(false);
   };
 
-  // Re-process when background color changes during mask editing
+  // Re-process when background color changes
   useEffect(() => {
-    if (isMaskEditing && sourceUrl && resultUrl) {
+    if (sourceUrl && resultUrl) {
       void process();
     }
-  }, [bgColor, sourceUrl, resultUrl, process, isMaskEditing]);
+  }, [bgColor, sourceUrl, resultUrl, process]);
 
   const handleProcess = async () => {
     await process();

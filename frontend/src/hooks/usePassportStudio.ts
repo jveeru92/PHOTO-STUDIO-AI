@@ -28,9 +28,9 @@ export function usePassportStudio() {
   const [sourceImage, setSourceImage] = useState<HTMLImageElement | null>(null);
   const [facePosition, setFacePosition] = useState({ x: 0.5, y: 0.45, scale: 1 }); // normalized center
 
-  const setSource = useCallback((img: HTMLImageElement | null) => setSourceImage(img), []);
-
-  // Segmentation cache (ref — updating it does not trigger re-render).
+  const setSource = useCallback((img: HTMLImageElement | null) => {
+    setSourceImage(img);
+  }, []);
   // Stores the pre-composited foreground (person + current background color).
   // Re-composited whenever backgroundColor changes; re-segmented only when
   // sourceImage changes.

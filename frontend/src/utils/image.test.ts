@@ -6,19 +6,19 @@ import {
   DEFAULT_ADJUSTMENTS,
   compositeForeground,
   compositeOver,
-  compositeOverColor,
   floodFillBackgroundMask,
   autoSegmentImageData,
-  erodeMask,
   dilateMask,
-  gaussianBlur,
   brushStroke,
 } from './image';
 
 function makeImageData(w: number, h: number, fill = 128): ImageData {
   const data = new Uint8ClampedArray(w * h * 4);
   for (let i = 0; i < data.length; i += 4) {
-    data[i] = fill; data[i + 1] = fill; data[i + 2] = fill; data[i + 3] = 255;
+    data[i] = fill;
+    data[i + 1] = fill;
+    data[i + 2] = fill;
+    data[i + 3] = 255;
   }
   return { width: w, height: h, data, colorSpace: 'srgb' as const };
 }
@@ -34,9 +34,13 @@ function makeImageDataWithCenter(w: number, h: number, bg: number[] = [255, 255,
       const dx = x - cx;
       const dy = y - cy;
       if (dx * dx + dy * dy <= cr * cr) {
-        data[i] = fg[0]; data[i + 1] = fg[1]; data[i + 2] = fg[2];
+        data[i] = fg[0];
+        data[i + 1] = fg[1];
+        data[i + 2] = fg[2];
       } else {
-        data[i] = bg[0]; data[i + 1] = bg[1]; data[i + 2] = bg[2];
+        data[i] = bg[0];
+        data[i + 1] = bg[1];
+        data[i + 2] = bg[2];
       }
       data[i + 3] = 255;
     }
@@ -79,7 +83,9 @@ describe('applyManualAdjustments', () => {
 
   it('grayscale when saturation is 0', () => {
     const id = makeImageData(2, 2, 200);
-    id.data[0] = 200; id.data[1] = 100; id.data[2] = 50;
+    id.data[0] = 200;
+    id.data[1] = 100;
+    id.data[2] = 50;
     const out = applyManualAdjustments(id, { ...DEFAULT_ADJUSTMENTS, saturation: 0 });
     const gray = 0.299 * 200 + 0.587 * 100 + 0.114 * 50;
     expect(Math.round(out.data[0])).toBe(Math.round(gray));
@@ -101,17 +107,18 @@ describe('compositeForeground', () => {
   it('composites semi-transparent foreground over color', () => {
     const id = makeImageData(2, 2, 100);
     id.data[3] = 128;
+    const alpha = id.data[3] / 255;
+    id.data[0] = Math.round(id.data[0] * alpha);
+    id.data[1] = Math.round(id.data[1] * alpha);
+    id.data[2] = Math.round(id.data[2] * alpha);
     const out = compositeForeground(id, '#ff0000');
-    // With 50% alpha: out = 100*0.5 + 255*0.5 = 177.5, rounds to 178
-    const r = out.data[0];
-    const g = out.data[1];
-    const b = out.data[2];
-    const a = out.data[3];
-    expect(r).toBeGreaterThanOrEqual(176);
-    expect(r).toBeLessThanOrEqual(179);
-    expect(g).toBeLessThanOrEqual(1);
-    expect(b).toBeLessThanOrEqual(1);
-    expect(a).toBe(255);
+    const expectedR = Math.round(100 * 0.5 + 255 * 0.5);
+    const expectedG = Math.round(100 * 0.5 + 0 * 0.5);
+    const expectedB = Math.round(100 * 0.5 + 0 * 0.5);
+    expect(Math.abs(out.data[0] - expectedR)).toBeLessThanOrEqual(2);
+    expect(Math.abs(out.data[1] - expectedG)).toBeLessThanOrEqual(2);
+    expect(Math.abs(out.data[2] - expectedB)).toBeLessThanOrEqual(2);
+    expect(out.data[3]).toBe(255);
   });
 });
 
@@ -119,7 +126,10 @@ describe('compositeOver', () => {
   it('composites foreground over background image', () => {
     const fg = makeImageData(2, 2, 255);
     const bg = makeImageData(2, 2, 0);
-    fg.data[6] = 255; fg.data[7] = 255; fg.data[8] = 255; fg.data[9] = 255;
+    fg.data[6] = 255;
+    fg.data[7] = 255;
+    fg.data[8] = 255;
+    fg.data[9] = 255;
     const out = compositeOver(fg, bg);
     const centerBase = 6;
     expect(out.data[centerBase]).toBe(255);
@@ -152,15 +162,26 @@ describe('floodFillBackgroundMask', () => {
   it('uses tolerance to control segmentation strictness', () => {
     const data = new Uint8ClampedArray(10 * 10 * 4);
     for (let i = 0; i < data.length; i += 4) {
-      data[i] = 255; data[i + 1] = 255; data[i + 2] = 255; data[i + 3] = 255;
+      data[i] = 255;
+      data[i + 1] = 255;
+      data[i + 2] = 255;
+      data[i + 3] = 255;
     }
     for (let x = 0; x < 10; x++) {
-      data[(0 * 10 + x) * 4] = 250; data[(0 * 10 + x) * 4 + 1] = 250; data[(0 * 10 + x) * 4 + 2] = 250;
-      data[(9 * 10 + x) * 4] = 250; data[(9 * 10 + x) * 4 + 1] = 250; data[(9 * 10 + x) * 4 + 2] = 250;
+      data[(0 * 10 + x) * 4] = 250;
+      data[(0 * 10 + x) * 4 + 1] = 250;
+      data[(0 * 10 + x) * 4 + 2] = 250;
+      data[(9 * 10 + x) * 4] = 250;
+      data[(9 * 10 + x) * 4 + 1] = 250;
+      data[(9 * 10 + x) * 4 + 2] = 250;
     }
     for (let y = 0; y < 10; y++) {
-      data[(y * 10 + 0) * 4] = 250; data[(y * 10 + 0) * 4 + 1] = 250; data[(y * 10 + 0) * 4 + 2] = 250;
-      data[(y * 10 + 9) * 4] = 250; data[(y * 10 + 9) * 4 + 1] = 250; data[(y * 10 + 9) * 4 + 2] = 250;
+      data[(y * 10 + 0) * 4] = 250;
+      data[(y * 10 + 0) * 4 + 1] = 250;
+      data[(y * 10 + 0) * 4 + 2] = 250;
+      data[(y * 10 + 9) * 4] = 250;
+      data[(y * 10 + 9) * 4 + 1] = 250;
+      data[(y * 10 + 9) * 4 + 2] = 250;
     }
     const id = { width: 10, height: 10, data, colorSpace: 'srgb' as const };
     const mask = floodFillBackgroundMask(id, 5);
@@ -195,7 +216,7 @@ describe('autoSegmentImageData', () => {
 describe('morphMask', () => {
   it('dilates foreground region', () => {
     const mask = new Uint8ClampedArray(5 * 5);
-    mask[2 * 5 + 2] = 255; // center is foreground
+    mask[2 * 5 + 2] = 255;
     const dilated = dilateMask(mask, 5, 5, 1);
     expect(dilated[2 * 5 + 2]).toBe(255);
     expect(dilated[1 * 5 + 2]).toBe(255);
