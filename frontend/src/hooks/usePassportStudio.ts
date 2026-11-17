@@ -1,10 +1,24 @@
 import { useCallback, useMemo, useRef, useState } from 'react';
 import type { PassportSettings } from '@/types';
-import {
-  clamp0255,
-  compositeOverColor,
-} from '@/utils/image';
+import { compositeOverColor } from '@/utils/image';
 import { segmentImage } from '@/utils/segmentation';
+import { api } from '@/services/api';
+
+// Standard paper sizes (inches)
+export const PAPER_SIZES: Record<string, { widthIn: number; heightIn: number; label: string }> = {
+  '4x6': { widthIn: 6, heightIn: 4, label: '4 × 6 in' },
+  '5x7': { widthIn: 7, heightIn: 5, label: '5 × 7 in' },
+  a4: { widthIn: 11.69, heightIn: 8.27, label: 'A4' },
+  a5: { widthIn: 8.27, heightIn: 5.83, label: 'A5' },
+  custom: { widthIn: 6, heightIn: 4, label: 'Custom' },
+};
+
+// Standard photo sizes
+export const PHOTO_SIZES: Record<string, { widthIn: number; heightIn: number; label: string }> = {
+  '1.5x2': { widthIn: 1.5, heightIn: 2, label: '1.5 × 2 in' },
+  '35x45mm': { widthIn: 35 / 25.4, heightIn: 45 / 25.4, label: '35 × 45 mm' },
+  custom: { widthIn: 1.5, heightIn: 2, label: 'Custom' },
+};
 
 export const DEFAULT_PASSPORT_SETTINGS: PassportSettings = {
   sheetWidthIn: 6,
@@ -14,7 +28,7 @@ export const DEFAULT_PASSPORT_SETTINGS: PassportSettings = {
   cols: 4,
   rows: 2,
   orientation: 'landscape',
-  backgroundColor: '#b3d9ff', // light blue
+  backgroundColor: '#b3d9ff',
   border: true,
   borderColor: '#000000',
   borderWidthPx: 2,
@@ -23,36 +37,37 @@ export const DEFAULT_PASSPORT_SETTINGS: PassportSettings = {
   photoHeightIn: 2,
 };
 
+export interface AIState {
+  status: 'idle' | 'consent-required' | 'processing' | 'success' | 'error';
+  error: string | null;
+  consentGiven: boolean;
+  originalImageUrl: string | null;
+  masterImageUrl: string | null;
+}
+
 export function usePassportStudio() {
   const [settings, setSettings] = useState<PassportSettings>(DEFAULT_PASSPORT_SETTINGS);
-  const [sourceImage, setSourceImage] = useState<HTMLImageElement | null>(null);
-  const [sourceImageUrl, setSourceImageUrl] = useState<string | null>(null);
-  const [facePosition, setFacePosition] = useState({ x: 0.5, y: 0.45, scale: 1 }); // normalized center
+  const [aiState, setAiState] = useState<AIState>({
+    status: 'idle',
+    error: null,
+    consentGiven: false,
+    originalImageUrl: null,
+    masterImageUrl: null,
+  });
 
-  const setSource = useCallback((img: HTMLImageElement | null) => {
-    setSourceImage(img);
-    if (img) {
-      const canvas = document.createElement('canvas');
-      canvas.width = img.naturalWidth;
-      canvas.height = img.naturalHeight;
-      const ctx = canvas.getContext('2d')!;
-      ctx.drawImage(img, 0, 0);
-      setSourceImageUrl(canvas.toDataURL());
-    } else {
-      setSourceImageUrl(null);
-    }
-  }, []);
-  // Stores the raw segmented foreground (with alpha) and the composited result.
-  // Re-segmented only when sourceImage changes. Re-composited from raw whenever
-  // backgroundColor changes, so repeated colour changes never accumulate drift.
+  // Segmentation cache (deterministic flood-fill only)
   const segCache = useRef<{
-    source: HTMLImageElement;
+    sourceUrl: string;
     bgColor: string;
     rawFgImageData: ImageData;
     fgImageData: ImageData;
   } | null>(null);
 
-  // Print-sheet canvas size in pixels at 300 DPI
+  // Active image element for canvas drawing (master or original)
+  const activeImgRef = useRef<HTMLImageElement | null>(null);
+  const activeImgUrlRef = useRef<string | null>(null);
+
+  // Print-sheet canvas size in pixels at DPI
   const sheetSize = useMemo(() => {
     const { orientation, sheetWidthIn, sheetHeightIn, dpi } = settings;
     const w = orientation === 'landscape' ? sheetWidthIn : sheetHeightIn;
@@ -73,36 +88,156 @@ export function usePassportStudio() {
     };
   }, [settings, sheetSize]);
 
-  // Prepare the foreground image: segment source once, then composite over
-  // the selected background color whenever it changes.
-  const prepareForeground = useCallback((): ImageData | null => {
-    if (!sourceImage) return null;
+  // Auto-calculate rows and columns that fit the copies on the paper
+  const layout = useMemo(() => {
+    const { copies, photoWidthIn, photoHeightIn, gapPx, borderWidthPx, border, orientation, sheetWidthIn, sheetHeightIn, dpi } = settings;
+    const sheetW = orientation === 'landscape' ? sheetWidthIn : sheetHeightIn;
+    const sheetH = orientation === 'landscape' ? sheetHeightIn : sheetWidthIn;
+
+    const photoWpx = photoWidthIn * dpi;
+    const photoHpx = photoHeightIn * dpi;
+    const bw = border ? borderWidthPx : 0;
+    const gap = gapPx;
+
+    let maxFit = 0;
+    let bestFit: { rows: number; cols: number } | null = null;
+    let requestedFits = false;
+
+    for (let cols = 1; cols <= 10; cols++) {
+      for (let rows = 1; rows <= 10; rows++) {
+        const availW = sheetW * dpi - gap * (cols + 1);
+        const availH = sheetH * dpi - gap * (rows + 1);
+        const cellW = Math.floor(availW / cols);
+        const cellH = Math.floor(availH / rows);
+        const pad = bw * 2 + 4;
+        const innerW = cellW - pad;
+        const innerH = cellH - pad;
+
+        const fits = photoWpx <= innerW && photoHpx <= innerH;
+        if (fits && cols * rows >= copies) requestedFits = true;
+        if (fits && cols * rows > maxFit) {
+          maxFit = cols * rows;
+          bestFit = { rows, cols };
+        }
+      }
+    }
+
+    return { requestedFits, maxFit, bestFit };
+  }, [settings]);
+
+  // Set source image from data URL (file upload)
+  const setSourceFromDataUrl = useCallback((dataUrl: string) => {
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => {
+      setAiState((prev) => ({
+        ...prev,
+        originalImageUrl: dataUrl,
+        masterImageUrl: null,
+        status: 'idle',
+        error: null,
+        consentGiven: false,
+      }));
+      activeImgRef.current = img;
+      activeImgUrlRef.current = dataUrl;
+      // Invalidate seg cache since source changed
+      segCache.current = null;
+    };
+    img.src = dataUrl;
+  }, []);
+
+  // AI Enhance: send original to image-edit provider
+  const enhanceImage = useCallback(async (): Promise<string | null> => {
+    if (!aiState.originalImageUrl) {
+      setAiState((prev) => ({ ...prev, status: 'error', error: 'No original image to enhance' }));
+      return null;
+    }
+
+    if (!aiState.consentGiven) {
+      setAiState((prev) => ({ ...prev, status: 'consent-required' }));
+      return null;
+    }
+
+    setAiState((prev) => ({ ...prev, status: 'processing', error: null }));
+
+    try {
+      const bgColor = settings.backgroundColor;
+      const prompt = `Replace the existing background with the exact color ${bgColor}. Professionally improve and enhance the photograph. Improve lighting, exposure, sharpness, clarity and natural colour balance. Preserve the person's real identity, facial features, face shape, skin texture and expression. Preserve natural hair, ears, shoulders and clothing. Do not invent facial details, reshape the face, change age, alter identity or create an artificial-looking portrait. Produce one clean, realistic, passport-style head-and-shoulders photograph. Centre the face and retain both shoulders where possible.`;
+
+      const res = await api.imageEdit({ imageUrl: aiState.originalImageUrl, prompt });
+      if (!res.ok || !res.edited) {
+        throw new Error(res.message || 'AI image editing returned no result');
+      }
+
+      const editedUrl = res.editedImageUrl || res.imageUrl;
+      if (!editedUrl) {
+        throw new Error('AI provider returned no image URL');
+      }
+
+      setAiState((prev) => ({ ...prev, status: 'success', masterImageUrl: editedUrl, error: null }));
+      segCache.current = null;
+      return editedUrl;
+    } catch (err: any) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setAiState((prev) => ({ ...prev, status: 'error', error: msg }));
+      return null;
+    }
+  }, [aiState.originalImageUrl, aiState.consentGiven, settings.backgroundColor]);
+
+  // Give consent for AI processing
+  const giveConsent = useCallback(() => {
+    setAiState((prev) => ({ ...prev, consentGiven: true }));
+  }, []);
+
+  // Reset AI state
+  const resetAI = useCallback(() => {
+    setAiState((prev) => ({ ...prev, status: 'idle', error: null, masterImageUrl: null, consentGiven: false }));
+    segCache.current = null;
+  }, []);
+
+  // Prepare the foreground image: segment source once, composite over bg color
+  const prepareForeground = useCallback(async (): Promise<ImageData | null> => {
+    const sourceUrl = aiState.masterImageUrl || aiState.originalImageUrl;
+    if (!sourceUrl) return null;
+
+    let img = activeImgRef.current;
+    if (!img || activeImgUrlRef.current !== sourceUrl) {
+      img = new Image();
+      img.crossOrigin = 'anonymous';
+      img.src = sourceUrl;
+      activeImgRef.current = img;
+      activeImgUrlRef.current = sourceUrl;
+    }
+
+    // Wait for image to load if not already loaded
+    if (!img.complete || img.naturalWidth === 0) {
+      await new Promise<void>((resolve) => {
+        img.onload = () => resolve();
+        img.onerror = () => resolve();
+      });
+    }
 
     // Re-segment only when the source image changes
-    if (!segCache.current || segCache.current.source !== sourceImage) {
-      // Draw source onto a temp canvas to get ImageData
+    if (!segCache.current || segCache.current.sourceUrl !== sourceUrl) {
       const tmpCanvas = document.createElement('canvas');
-      tmpCanvas.width = sourceImage.naturalWidth;
-      tmpCanvas.height = sourceImage.naturalHeight;
+      tmpCanvas.width = img.naturalWidth;
+      tmpCanvas.height = img.naturalHeight;
       const tmpCtx = tmpCanvas.getContext('2d')!;
-      tmpCtx.drawImage(sourceImage, 0, 0);
-      const imageData = tmpCtx.getImageData(0, 0, sourceImage.naturalWidth, sourceImage.naturalHeight);
+      tmpCtx.drawImage(img, 0, 0);
+      const imageData = tmpCtx.getImageData(0, 0, img.naturalWidth, img.naturalHeight);
 
-      // Segment: use MediaPipe selfie segmentation with flood-fill fallback.
-      // MediaPipe handles subjects touching the frame edge (unlike flood-fill alone).
+      // Segment using deterministic flood-fill
       const { fgImageData: rawFgImageData } = segmentImage(imageData, 40);
 
       segCache.current = {
-        source: sourceImage,
+        sourceUrl,
         bgColor: settings.backgroundColor,
         rawFgImageData,
         fgImageData: compositeOverColor(rawFgImageData, settings.backgroundColor),
       };
     }
 
-    // Re-composite over the selected background color whenever it changes.
-    // Always composite from the raw segmented foreground so repeated colour
-    // changes never accumulate drift.
+    // Re-composite from raw when bg color changes
     if (segCache.current.bgColor !== settings.backgroundColor) {
       segCache.current.fgImageData = compositeOverColor(
         segCache.current.rawFgImageData,
@@ -112,57 +247,66 @@ export function usePassportStudio() {
     }
 
     return segCache.current.fgImageData;
-  }, [sourceImage, settings.backgroundColor]);
+  }, [aiState.masterImageUrl, aiState.originalImageUrl, settings.backgroundColor]);
 
   // Render the print sheet to an offscreen canvas and return a data URL
   const renderSheet = useCallback(async (): Promise<string | null> => {
-    if (!sourceImage) return null;
+    const sourceUrl = aiState.masterImageUrl || aiState.originalImageUrl;
+    if (!sourceUrl) return null;
+
+    let img = activeImgRef.current;
+    if (!img || activeImgUrlRef.current !== sourceUrl) {
+      img = new Image();
+      img.crossOrigin = 'anonymous';
+      img.src = sourceUrl;
+      activeImgRef.current = img;
+      activeImgUrlRef.current = sourceUrl;
+    }
+
+    // Wait for image to load if not already loaded
+    if (!img.complete || img.naturalWidth === 0) {
+      await new Promise<void>((resolve) => {
+        img.onload = () => resolve();
+        img.onerror = () => resolve();
+      });
+    }
+
     const { widthPx, heightPx } = sheetSize;
     const canvas = document.createElement('canvas');
     canvas.width = widthPx;
     canvas.height = heightPx;
     const ctx = canvas.getContext('2d')!;
 
-    // Fill paper background (WHITE — never changes regardless of photo bg color)
+    // Fill paper background (WHITE)
     ctx.fillStyle = '#ffffff';
     ctx.fillRect(0, 0, widthPx, heightPx);
-
-    const fgImageData = prepareForeground();
-    if (!fgImageData) return null;
 
     const { w: cellW, h: cellH, bw } = cell;
     const gap = settings.gapPx;
     const photoAspect = settings.photoWidthIn / settings.photoHeightIn;
 
-    // Source crop box: head-and-shoulders framing, centred on face position
-    const srcW = sourceImage.naturalWidth;
-    const srcH = sourceImage.naturalHeight;
-    // Crop a region whose aspect matches the photo, scaled by facePosition.scale
+    // Source crop box: head-and-shoulders framing, centred
+    const srcW = img.naturalWidth;
+    const srcH = img.naturalHeight;
     let cropW = srcW;
     let cropH = srcW / photoAspect;
     if (cropH > srcH) {
       cropH = srcH;
       cropW = srcH * photoAspect;
     }
-    cropW *= facePosition.scale;
-    cropH *= facePosition.scale;
-    let cropX = (srcW - cropW) / 2 + (facePosition.x - 0.5) * (srcW - cropW) * 0.6;
-    let cropY = (srcH - cropH) / 2 + (facePosition.y - 0.5) * (srcH - cropH) * 0.6;
-    cropX = clamp0255(cropX) / 255;
+    let cropX = (srcW - cropW) / 2;
+    let cropY = (srcH - cropH) / 2;
     cropX = Math.max(0, Math.min(srcW - cropW, cropX));
     cropY = Math.max(0, Math.min(srcH - cropH, cropY));
 
-    // Build a temp canvas from the composited foreground for cropping
-    const tempCanvas = document.createElement('canvas');
-    tempCanvas.width = fgImageData.width;
-    tempCanvas.height = fgImageData.height;
-    const tempCtx = tempCanvas.getContext('2d')!;
-    tempCtx.putImageData(fgImageData, 0, 0);
+    const cols = settings.cols;
+    const rows = settings.rows;
 
-    for (let r = 0; r < settings.rows; r++) {
-      for (let c = 0; c < settings.cols; c++) {
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
         const cx = gap + c * (cellW + gap);
         const cy = gap + r * (cellH + gap);
+
         // Border
         if (settings.border && bw > 0) {
           ctx.fillStyle = settings.borderColor;
@@ -170,6 +314,7 @@ export function usePassportStudio() {
           ctx.fillStyle = settings.backgroundColor;
           ctx.fillRect(cx + bw, cy + bw, cellW - bw * 2, cellH - bw * 2);
         }
+
         // Photo draw region inside cell
         const pad = bw * 2 + 4;
         const pw = cellW - pad;
@@ -183,33 +328,34 @@ export function usePassportStudio() {
         const dx = cx + (cellW - dw) / 2;
         const dy = cy + (cellH - dh) / 2;
 
-        // Draw cropped source region from the composited temp canvas
         ctx.drawImage(
-          tempCanvas,
-          cropX,
-          cropY,
-          cropW,
-          cropH,
-          dx,
-          dy,
-          dw,
-          dh,
+          img,
+          cropX, cropY, cropW, cropH,
+          dx, dy, dw, dh,
         );
       }
     }
     return canvas.toDataURL('image/png');
-  }, [sourceImage, settings, sheetSize, cell, facePosition, prepareForeground]);
+  }, [aiState.masterImageUrl, aiState.originalImageUrl, settings, sheetSize, cell]);
+
+  const updateSetting = useCallback((k: keyof PassportSettings, v: any) => {
+    setSettings((prev) => ({ ...prev, [k]: v }));
+  }, []);
 
   return {
     settings,
     setSettings,
-    setSource,
-    sourceImage,
-    sourceImageUrl,
+    updateSetting,
+    setSourceFromDataUrl,
+    aiState,
+    giveConsent,
+    enhanceImage,
+    resetAI,
+    imageElement: activeImgRef.current,
+    prepareForeground,
+    renderSheet,
     sheetSize,
     cell,
-    facePosition,
-    setFacePosition,
-    renderSheet,
+    layout,
   };
 }
