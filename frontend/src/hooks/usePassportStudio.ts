@@ -26,17 +26,29 @@ export const DEFAULT_PASSPORT_SETTINGS: PassportSettings = {
 export function usePassportStudio() {
   const [settings, setSettings] = useState<PassportSettings>(DEFAULT_PASSPORT_SETTINGS);
   const [sourceImage, setSourceImage] = useState<HTMLImageElement | null>(null);
+  const [sourceImageUrl, setSourceImageUrl] = useState<string | null>(null);
   const [facePosition, setFacePosition] = useState({ x: 0.5, y: 0.45, scale: 1 }); // normalized center
 
   const setSource = useCallback((img: HTMLImageElement | null) => {
     setSourceImage(img);
+    if (img) {
+      const canvas = document.createElement('canvas');
+      canvas.width = img.naturalWidth;
+      canvas.height = img.naturalHeight;
+      const ctx = canvas.getContext('2d')!;
+      ctx.drawImage(img, 0, 0);
+      setSourceImageUrl(canvas.toDataURL());
+    } else {
+      setSourceImageUrl(null);
+    }
   }, []);
-  // Stores the pre-composited foreground (person + current background color).
-  // Re-composited whenever backgroundColor changes; re-segmented only when
-  // sourceImage changes.
+  // Stores the raw segmented foreground (with alpha) and the composited result.
+  // Re-segmented only when sourceImage changes. Re-composited from raw whenever
+  // backgroundColor changes, so repeated colour changes never accumulate drift.
   const segCache = useRef<{
     source: HTMLImageElement;
     bgColor: string;
+    rawFgImageData: ImageData;
     fgImageData: ImageData;
   } | null>(null);
 
@@ -77,15 +89,22 @@ export function usePassportStudio() {
       const imageData = tmpCtx.getImageData(0, 0, sourceImage.naturalWidth, sourceImage.naturalHeight);
 
       // Segment: background = flood-fill from border, foreground = everything else
-      const { fgImageData } = autoSegmentImageData(imageData, 40);
+      const { fgImageData: rawFgImageData } = autoSegmentImageData(imageData, 40);
 
-      segCache.current = { source: sourceImage, bgColor: settings.backgroundColor, fgImageData };
+      segCache.current = {
+        source: sourceImage,
+        bgColor: settings.backgroundColor,
+        rawFgImageData,
+        fgImageData: compositeOverColor(rawFgImageData, settings.backgroundColor),
+      };
     }
 
-    // Re-composite over the selected background color whenever it changes
+    // Re-composite over the selected background color whenever it changes.
+    // Always composite from the raw segmented foreground so repeated colour
+    // changes never accumulate drift.
     if (segCache.current.bgColor !== settings.backgroundColor) {
       segCache.current.fgImageData = compositeOverColor(
-        segCache.current.fgImageData,
+        segCache.current.rawFgImageData,
         settings.backgroundColor,
       );
       segCache.current.bgColor = settings.backgroundColor;
@@ -185,6 +204,7 @@ export function usePassportStudio() {
     setSettings,
     setSource,
     sourceImage,
+    sourceImageUrl,
     sheetSize,
     cell,
     facePosition,

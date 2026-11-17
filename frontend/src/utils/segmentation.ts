@@ -19,7 +19,7 @@ import {
   FilesetResolver,
   type ImageSegmenterResult,
 } from '@mediapipe/tasks-vision';
-import { autoSegmentImageData } from './image';
+import { autoSegmentImageData, createImageData } from './image';
 
 let segmenter: ImageSegmenter | null = null;
 let isLoading = false;
@@ -100,8 +100,15 @@ export function segmentImage(
         throw new Error('Segmentation result has no mask');
       }
 
-      // MediaPipe categoryMask: buffer contains category indices (0 = background, 1 = foreground)
-      const maskBuf = (categoryMask as any).buffer as Float32Array;
+      // MediaPipe categoryMask: use the documented Mask API (getAsFloat32Array)
+      // Category indices: 0 = background, 1 = foreground
+      let maskBuf: Float32Array;
+      if (typeof categoryMask.getAsFloat32Array === 'function') {
+        maskBuf = categoryMask.getAsFloat32Array();
+      } else {
+        // Fallback for environments where categoryMask is already a typed array
+        maskBuf = new Float32Array((categoryMask as any).buffer);
+      }
       const mask = new Uint8ClampedArray(width * height);
       for (let i = 0; i < width * height; i++) {
         mask[i] = maskBuf[i] > 0 ? 255 : 0;
@@ -114,12 +121,12 @@ export function segmentImage(
         fg[i] = data[i] * alpha;
         fg[i + 1] = data[i + 1] * alpha;
         fg[i + 2] = data[i + 2] * alpha;
-        fg[i + 3] = data[i + 3] * alpha;
+        fg[i + 3] = mask[i / 4]; // Store mask alpha directly (0-255)
       }
 
       return {
         mask,
-        fgImageData: { ...imageData, data: fg },
+        fgImageData: createImageData(width, height, fg),
         method: 'mediapipe',
       };
     } catch (err) {

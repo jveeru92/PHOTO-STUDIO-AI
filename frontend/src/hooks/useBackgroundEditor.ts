@@ -125,9 +125,9 @@ export function useBackgroundEditor() {
           fg[i] = imageData.data[i] * alpha;
           fg[i + 1] = imageData.data[i + 1] * alpha;
           fg[i + 2] = imageData.data[i + 2] * alpha;
-          fg[i + 3] = imageData.data[i + 3] * alpha;
+          fg[i + 3] = finalMask[Math.floor(i / 4)];
         }
-        const fgImageData = { ...imageData, data: fg };
+        const fgImageData = new ImageData(fg, imageData.width, imageData.height);
         const fgComposite = compositeOverColor(fgImageData, bgColor);
         octx.putImageData(fgComposite, 0, 0);
       }

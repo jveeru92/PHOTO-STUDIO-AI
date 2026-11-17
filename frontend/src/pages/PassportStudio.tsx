@@ -12,8 +12,8 @@ import { PageWrapper } from '@/components/layout/PageWrapper';
 
 export default function PassportStudio() {
   const {
-    settings, setSettings, setSource, sourceImage, sheetSize,
-    facePosition, setFacePosition, renderSheet,
+    settings, setSettings, setSource, sourceImage, sourceImageUrl,
+    sheetSize, facePosition, setFacePosition, renderSheet,
   } = usePassportStudio();
   const [sheetUrl, setSheetUrl] = useState<string | null>(null);
   const [manualEdits, setManualEdits] = useState<ManualAdjustments>(DEFAULT_ADJUSTMENTS);
@@ -180,7 +180,7 @@ export default function PassportStudio() {
         </div>
         <p className="text-xs text-[var(--color-muted)] mb-4">Adjust the source before the sheet regenerates. Identity preserved.</p>
         <CanvasEditor
-          imageUrl={sourceImage ? sourceImage.src : null}
+          imageUrl={sourceImageUrl}
           adjustments={manualEdits}
           onAdjustmentChange={(k: keyof ManualAdjustments, v: number) => setManualEdits((p) => ({ ...p, [k]: v }))}
           onCommit={(dataUrl: string) => {

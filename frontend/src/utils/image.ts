@@ -7,8 +7,21 @@
 export function clamp(v: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, v));
 }
+
 export function clamp0255(v: number): number {
   return Math.max(0, Math.min(255, Math.round(v)));
+}
+
+/**
+ * Create an ImageData-compatible object. In the browser this is a genuine
+ * ImageData instance (required by putImageData). In Node.js test environments
+ * it falls back to a plain object so unit tests can run without a canvas.
+ */
+export function createImageData(width: number, height: number, data: Uint8ClampedArray): ImageData {
+  if (typeof ImageData !== 'undefined') {
+    return new ImageData(data, width, height);
+  }
+  return { width, height, data, colorSpace: 'srgb' } as unknown as ImageData;
 }
 
 export interface ManualAdjustments {
@@ -24,8 +37,15 @@ export interface ManualAdjustments {
 }
 
 export const DEFAULT_ADJUSTMENTS: ManualAdjustments = {
-  brightness: 1, contrast: 1, saturation: 1, exposure: 0,
-  temperature: 0, tint: 0, sharpness: 1, highlights: 0, shadows: 0,
+  brightness: 1,
+  contrast: 1,
+  saturation: 1,
+  exposure: 0,
+  temperature: 0,
+  tint: 0,
+  sharpness: 1,
+  highlights: 0,
+  shadows: 0,
 };
 
 function boxBlurHorizontal(data: Uint8ClampedArray, w: number, h: number, radius: number) {
@@ -37,9 +57,15 @@ function boxBlurHorizontal(data: Uint8ClampedArray, w: number, h: number, radius
       for (let dx = -radius; dx <= radius; dx++) {
         const sx = clamp(x + dx, 0, w - 1);
         const idx = (y * w + sx) * 4;
-        r += data[idx]; g += data[idx + 1]; b += data[idx + 2]; count++;
+        r += data[idx];
+        g += data[idx + 1];
+        b += data[idx + 2];
+        count++;
       }
-      out[base] = r / count; out[base + 1] = g / count; out[base + 2] = b / count; out[base + 3] = data[base + 3];
+      out[base] = r / count;
+      out[base + 1] = g / count;
+      out[base + 2] = b / count;
+      out[base + 3] = data[base + 3];
     }
   }
   return out;
@@ -54,18 +80,20 @@ function boxBlurVertical(data: Uint8ClampedArray, w: number, h: number, radius: 
       for (let dy = -radius; dy <= radius; dy++) {
         const sy = clamp(y + dy, 0, h - 1);
         const idx = (sy * w + x) * 4;
-        r += data[idx]; g += data[idx + 1]; b += data[idx + 2]; count++;
+        r += data[idx];
+        g += data[idx + 1];
+        b += data[idx + 2];
+        count++;
       }
-      out[base] = r / count; out[base + 1] = g / count; out[base + 2] = b / count; out[base + 3] = data[base + 3];
+      out[base] = r / count;
+      out[base + 1] = g / count;
+      out[base + 2] = b / count;
+      out[base + 3] = data[base + 3];
     }
   }
   return out;
 }
 
-/**
- * Apply all manual adjustments in a single deterministic pass over pixel data.
- * Non-destructive: returns a new ImageData; the caller keeps the original.
- */
 export function applyManualAdjustments(
   imageData: ImageData,
   a: ManualAdjustments,
@@ -85,7 +113,6 @@ export function applyManualAdjustments(
   const high = clamp(a.highlights, -1, 1);
   const shad = clamp(a.shadows, -1, 1);
 
-  // First pass: exposure, brightness, contrast, saturation, temperature, tint
   for (let i = 0; i < data.length; i += 4) {
     let r = data[i] * exp;
     let g = data[i + 1] * exp;
@@ -107,7 +134,6 @@ export function applyManualAdjustments(
     r += temp * 48;
     b -= temp * 48;
 
-    // tint: push green vs magenta (red+blue)
     const magenta = (r + b) / 2;
     g = g + (magenta - g) * tint * 0.6;
 
@@ -117,7 +143,6 @@ export function applyManualAdjustments(
     out[i + 3] = data[i + 3];
   }
 
-  // Highlights / shadows tonal adjustment (luminance-based), per-pixel independent
   if (high !== 0 || shad !== 0) {
     for (let i = 0; i < out.length; i += 4) {
       const lum = 0.299 * out[i] + 0.587 * out[i + 1] + 0.114 * out[i + 2];
@@ -130,10 +155,9 @@ export function applyManualAdjustments(
     }
   }
 
-  // Sharpness via unsharp mask
   if (sharp !== 1) {
     const blur = boxBlurVertical(boxBlurHorizontal(out, w, h, 1), w, h, 1);
-    const amount = sharp - 1; // 0..1
+    const amount = sharp - 1;
     for (let i = 0; i < out.length; i += 4) {
       out[i] = clamp0255(out[i] + amount * (out[i] - blur[i]));
       out[i + 1] = clamp0255(out[i + 1] + amount * (out[i + 1] - blur[i + 1]));
@@ -141,13 +165,10 @@ export function applyManualAdjustments(
     }
   }
 
-  return { ...imageData, data: out };
+  return createImageData(imageData.width, imageData.height, out);
 }
 
-/**
- * Composite a foreground image over a solid background color.
- */
-export function compositeOverColor(fgImageData: ImageData, color: string): ImageData {
+export function compositeForeground(fgImageData: ImageData, color: string): ImageData {
   const c = parseColor(color);
   const out = new Uint8ClampedArray(fgImageData.data.length);
   const data = fgImageData.data;
@@ -158,7 +179,87 @@ export function compositeOverColor(fgImageData: ImageData, color: string): Image
     out[i + 2] = clamp0255(data[i + 2] * alpha + c.b * (1 - alpha));
     out[i + 3] = 255;
   }
-  return { ...fgImageData, data: out };
+  return createImageData(fgImageData.width, fgImageData.height, out);
+}
+
+export function compositeOver(fg: ImageData, bg: ImageData): ImageData {
+  const out = new Uint8ClampedArray(fg.data.length);
+  for (let i = 0; i < fg.data.length; i += 4) {
+    const fa = fg.data[i + 3] / 255;
+    const ba = bg.data[i + 3] / 255;
+    const outA = fa + ba * (1 - fa);
+    if (outA > 0) {
+      out[i] = clamp0255((fg.data[i] * fa + bg.data[i] * ba * (1 - fa)) / outA);
+      out[i + 1] = clamp0255((fg.data[i + 1] * fa + bg.data[i + 1] * ba * (1 - fa)) / outA);
+      out[i + 2] = clamp0255((fg.data[i + 2] * fa + bg.data[i + 2] * ba * (1 - fa)) / outA);
+      out[i + 3] = clamp0255(outA * 255);
+    } else {
+      out[i] = 0;
+      out[i + 1] = 0;
+      out[i + 2] = 0;
+      out[i + 3] = 0;
+    }
+  }
+  return createImageData(fg.width, fg.height, out);
+}
+
+export function drawMaskOverlay(imageData: ImageData, mask: Uint8ClampedArray, alpha = 0.3): ImageData {
+  const out = new Uint8ClampedArray(imageData.data.length);
+  for (let i = 0; i < imageData.data.length; i += 4) {
+    const m = mask[i / 4] / 255;
+    if (m > 0) {
+      out[i] = clamp0255(imageData.data[i] * (1 - m * alpha) + 255 * m * alpha);
+      out[i + 1] = imageData.data[i + 1] * (1 - m * alpha);
+      out[i + 2] = imageData.data[i + 2] * (1 - m * alpha);
+      out[i + 3] = imageData.data[i + 3];
+    } else {
+      out[i] = imageData.data[i];
+      out[i + 1] = imageData.data[i + 1];
+      out[i + 2] = imageData.data[i + 2];
+      out[i + 3] = imageData.data[i + 3];
+    }
+  }
+  return createImageData(imageData.width, imageData.height, out);
+}
+
+export function brushStroke(
+  mask: Uint8ClampedArray,
+  w: number,
+  h: number,
+  cx: number,
+  cy: number,
+  radius: number,
+  value: number,
+  softness: number = 0,
+): Uint8ClampedArray {
+  const out = new Uint8ClampedArray(mask);
+  const r2 = radius * radius;
+  const yStart = Math.max(0, cy - radius);
+  const yEnd = Math.min(h - 1, cy + radius);
+  const xStart = Math.max(0, cx - radius);
+  const xEnd = Math.min(w - 1, cx + radius);
+  for (let y = yStart; y <= yEnd; y++) {
+    for (let x = xStart; x <= xEnd; x++) {
+      const dx = x - cx;
+      const dy = y - cy;
+      const d2 = dx * dx + dy * dy;
+      if (d2 > r2) continue;
+      const dist = Math.sqrt(d2);
+      let m = value;
+      if (softness > 0 && dist > radius * (1 - softness)) {
+        const featherDist = (dist - radius * (1 - softness)) / (radius * softness);
+        const feather = Math.max(0, 1 - featherDist);
+        m = value * feather;
+      }
+      const idx = y * w + x;
+      if (value > 0) {
+        out[idx] = Math.max(out[idx], m);
+      } else {
+        out[idx] = Math.min(out[idx], m);
+      }
+    }
+  }
+  return out;
 }
 
 function parseColor(css: string) {
@@ -175,17 +276,18 @@ function parseColor(css: string) {
   const rgb = css.match(/^rgb\((\d+),\s*(\d+),\s*(\d+)\)/);
   if (rgb) return { r: +rgb[1], g: +rgb[2], b: +rgb[3] };
   const names: Record<string, [number, number, number]> = {
-    white: [255, 255, 255], black: [0, 0, 0], red: [255, 0, 0], lime: [0, 255, 0], blue: [0, 0, 255],
-    gray: [128, 128, 128], transparent: [0, 0, 0],
+    white: [255, 255, 255],
+    black: [0, 0, 0],
+    red: [255, 0, 0],
+    lime: [0, 255, 0],
+    blue: [0, 0, 255],
+    gray: [128, 128, 128],
+    transparent: [0, 0, 0],
   };
   if (names[css]) return { r: names[css][0], g: names[css][1], b: names[css][2] };
   return { r: 255, g: 255, b: 255 };
 }
 
-/**
- * Simple threshold-based background mask: treats pixels close to a target color
- * as background. Honest, limited — used as a fallback when AI segmentation is unavailable.
- */
 export function makeChromaMask(
   imageData: ImageData,
   targetColor: string,
@@ -209,10 +311,6 @@ export function makeChromaMask(
   return mask;
 }
 
-/**
- * Dilate/shrink a binary mask by `radius` pixels (simple morphological operator)
- * for edge refinement (feathering/contract).
- */
 export function morphMask(mask: Uint8ClampedArray, w: number, h: number, radius: number): Uint8ClampedArray {
   const out = new Uint8ClampedArray(w * h);
   for (let y = 0; y < h; y++) {
@@ -231,22 +329,6 @@ export function morphMask(mask: Uint8ClampedArray, w: number, h: number, radius:
   return out;
 }
 
-/**
- * Flood-fill background mask starting from all border pixels.
- *
- * Treats pixels touching the image border as background seeds, then flood-fills
- * through adjacent pixels whose color is similar (within `tolerance`) to the
- * current pixel. Everything not reached by the flood fill is foreground.
- *
- * Honest limitations:
- * - Works best when the subject is against a uniform background that touches
- *   the image border.
- * - Complex indoor backgrounds, hair against similar-colored walls, or subjects
- *   touching the frame edge may segment poorly.
- * - No AI model is used; this is a deterministic image-processing fallback.
- *
- * Returns a Uint8ClampedArray where 255 = foreground, 0 = background.
- */
 export function floodFillBackgroundMask(
   imageData: ImageData,
   tolerance: number,
@@ -256,31 +338,27 @@ export function floodFillBackgroundMask(
   const h = imageData.height;
   const total = w * h;
 
-  const mask = new Uint8ClampedArray(total); // 0 = background, 255 = foreground
+  const mask = new Uint8ClampedArray(total);
   const visited = new Uint8ClampedArray(total);
-  const queue: number[] = []; // stores pixel index (y*w + x)
+  const queue: number[] = [];
 
-  // Seed: all border pixels are background candidates
   const enqueue = (x: number, y: number) => {
     const idx = y * w + x;
     if (x < 0 || x >= w || y < 0 || y >= h || visited[idx]) return;
     visited[idx] = 1;
-    mask[idx] = 0; // background
+    mask[idx] = 0;
     queue.push(idx);
   };
 
-  // Top and bottom rows
   for (let x = 0; x < w; x++) {
     enqueue(x, 0);
     enqueue(x, h - 1);
   }
-  // Left and right columns
   for (let y = 0; y < h; y++) {
     enqueue(0, y);
     enqueue(w - 1, y);
   }
 
-  // BFS flood-fill through adjacent similar-colored pixels
   const dirs = [-1, 1, -w, w];
   let qi = 0;
   while (qi < queue.length) {
@@ -293,7 +371,6 @@ export function floodFillBackgroundMask(
 
     for (const d of dirs) {
       const nIdx = idx + d;
-      // Skip wrapping across row boundaries for horizontal moves
       if (d === -1 && x === 0) continue;
       if (d === 1 && x === w - 1) continue;
       if (nIdx < 0 || nIdx >= total || visited[nIdx]) continue;
@@ -306,13 +383,12 @@ export function floodFillBackgroundMask(
 
       if (dist <= tolerance) {
         visited[nIdx] = 1;
-        mask[nIdx] = 0; // background
+        mask[nIdx] = 0;
         queue.push(nIdx);
       }
     }
   }
 
-  // Everything not reached by flood fill = foreground
   for (let i = 0; i < total; i++) {
     if (!visited[i]) mask[i] = 255;
   }
@@ -320,74 +396,31 @@ export function floodFillBackgroundMask(
   return mask;
 }
 
-/**
- * Automatic foreground/background segmentation using border flood-fill.
- *
- * Detects background by flood-filling from all border pixels through similar
- * colors, then produces a foreground mask. Returns a pre-multiplied foreground
- * ImageData ready for compositing over a new background via compositeOverColor.
- *
- * Honest limitations:
- * - Best on subject against uniform background touching the frame edge.
- * - Complex indoor backgrounds or subjects touching the frame edge may
- *   segment poorly — no claim of advanced hair segmentation is made.
- * - Zero-spend: runs entirely in the browser, no remote API, no API key.
- */
 export function autoSegmentImageData(
   imageData: ImageData,
   tolerance: number,
 ): { mask: Uint8ClampedArray; fgImageData: ImageData } {
   const data = imageData.data;
-
   const mask = floodFillBackgroundMask(imageData, tolerance);
 
-  // Build foreground image: premultiply RGB by alpha, set alpha from mask
   const fg = new Uint8ClampedArray(data.length);
   for (let i = 0; i < data.length; i += 4) {
     const alpha = mask[i / 4] / 255;
     fg[i] = data[i] * alpha;
     fg[i + 1] = data[i + 1] * alpha;
     fg[i + 2] = data[i + 2] * alpha;
-    fg[i + 3] = data[i + 3] * alpha;
+    fg[i + 3] = mask[i / 4];
   }
 
   return {
     mask,
-    fgImageData: { ...imageData, data: fg },
+    fgImageData: createImageData(imageData.width, imageData.height, fg),
   };
 }
 
 /**
- * Morphological erosion: shrinks foreground regions by removing pixels
- * that have any background neighbor within `radius` pixels.
- * Used to tighten mask edges and remove halo artifacts.
- */
-export function erodeMask(mask: Uint8ClampedArray, w: number, h: number, radius: number): Uint8ClampedArray {
-  const out = new Uint8ClampedArray(w * h);
-  for (let y = 0; y < h; y++) {
-    for (let x = 0; x < w; x++) {
-      let allForeground = 255;
-      for (let dy = -radius; dy <= radius; dy++) {
-        const sy = clamp(y + dy, 0, h - 1);
-        for (let dx = -radius; dx <= radius; dx++) {
-          const sx = clamp(x + dx, 0, w - 1);
-          if (mask[sy * w + sx] === 0) {
-            allForeground = 0;
-            break;
-          }
-        }
-        if (allForeground === 0) break;
-      }
-      out[y * w + x] = allForeground;
-    }
-  }
-  return out;
-}
-
-/**
- * Morphological dilation: grows foreground regions by setting pixels
- * to foreground if any neighbor within `radius` pixels is foreground.
- * Used to expand mask coverage and close small gaps.
+ * Dilate/shrink a binary mask by `radius` pixels (simple morphological operator)
+ * for edge refinement (feathering/contract).
  */
 export function dilateMask(mask: Uint8ClampedArray, w: number, h: number, radius: number): Uint8ClampedArray {
   const out = new Uint8ClampedArray(w * h);
@@ -403,7 +436,6 @@ export function dilateMask(mask: Uint8ClampedArray, w: number, h: number, radius
             break;
           }
         }
-        if (anyForeground > 0) break;
       }
       out[y * w + x] = anyForeground;
     }
@@ -412,7 +444,25 @@ export function dilateMask(mask: Uint8ClampedArray, w: number, h: number, radius
 }
 
 /**
- * Gaussian blur with separable kernel. Used for mask edge feathering.
+ * Composite a foreground image over a solid background color.
+ * Returns a new ImageData with alpha = 255 everywhere.
+ */
+export function compositeOverColor(fgImageData: ImageData, color: string): ImageData {
+  const c = parseColor(color);
+  const out = new Uint8ClampedArray(fgImageData.data.length);
+  const data = fgImageData.data;
+  for (let i = 0; i < data.length; i += 4) {
+    const alpha = data[i + 3] / 255;
+    out[i] = clamp0255(data[i] + c.r * (1 - alpha));
+    out[i + 1] = clamp0255(data[i + 1] + c.g * (1 - alpha));
+    out[i + 2] = clamp0255(data[i + 2] + c.b * (1 - alpha));
+    out[i + 3] = 255;
+  }
+  return createImageData(fgImageData.width, fgImageData.height, out);
+}
+
+/**
+ * Gaussian blur with separable kernel. Used for mask edge refinement.
  * `sigma` controls the blur strength.
  */
 export function gaussianBlur(data: Uint8ClampedArray, w: number, h: number, sigma: number): Uint8ClampedArray {
@@ -473,110 +523,6 @@ export function gaussianBlur(data: Uint8ClampedArray, w: number, h: number, sigm
       out[idx + 1] = g / wSum;
       out[idx + 2] = b / wSum;
       out[idx + 3] = a / wSum;
-    }
-  }
-  return out;
-}
-
-/**
- * Composite foreground (premultiplied alpha) over a solid background color.
- * Returns a new ImageData with alpha = 255 everywhere.
- */
-export function compositeForeground(fgImageData: ImageData, color: string): ImageData {
-  const c = parseColor(color);
-  const out = new Uint8ClampedArray(fgImageData.data.length);
-  const data = fgImageData.data;
-  for (let i = 0; i < data.length; i += 4) {
-    const alpha = data[i + 3] / 255;
-    out[i] = clamp0255(data[i] + c.r * (1 - alpha));
-    out[i + 1] = clamp0255(data[i + 1] + c.g * (1 - alpha));
-    out[i + 2] = clamp0255(data[i + 2] + c.b * (1 - alpha));
-    out[i + 3] = 255;
-  }
-  return { ...fgImageData, data: out };
-}
-
-/**
- * Composite a foreground RGBA image over a background RGBA image.
- * Both must have the same dimensions. Standard alpha compositing.
- */
-export function compositeOver(fg: ImageData, bg: ImageData): ImageData {
-  const out = new Uint8ClampedArray(fg.data.length);
-  for (let i = 0; i < fg.data.length; i += 4) {
-    const fa = fg.data[i + 3] / 255;
-    const ba = bg.data[i + 3] / 255;
-    const outA = fa + ba * (1 - fa);
-    if (outA > 0) {
-      out[i] = clamp0255((fg.data[i] * fa + bg.data[i] * ba * (1 - fa)) / outA);
-      out[i + 1] = clamp0255((fg.data[i + 1] * fa + bg.data[i + 1] * ba * (1 - fa)) / outA);
-      out[i + 2] = clamp0255((fg.data[i + 2] * fa + bg.data[i + 2] * ba * (1 - fa)) / outA);
-      out[i + 3] = clamp0255(outA * 255);
-    } else {
-      out[i] = out[i + 1] = out[i + 2] = out[i + 3] = 0;
-    }
-  }
-  return { ...fg, data: out };
-}
-
-/**
- * Draw a semi-transparent red overlay on top of the image where mask == 255.
- * Used for visualizing the segmentation mask during editing.
- */
-export function drawMaskOverlay(imageData: ImageData, mask: Uint8ClampedArray, alpha = 0.3): ImageData {
-  const out = new Uint8ClampedArray(imageData.data.length);
-  for (let i = 0; i < imageData.data.length; i += 4) {
-    const m = mask[i / 4] / 255;
-    if (m > 0) {
-      out[i] = clamp0255(imageData.data[i] * (1 - m * alpha) + 255 * m * alpha);
-      out[i + 1] = imageData.data[i + 1] * (1 - m * alpha);
-      out[i + 2] = imageData.data[i + 2] * (1 - m * alpha);
-      out[i + 3] = imageData.data[i + 3];
-    } else {
-      out[i] = imageData.data[i];
-      out[i + 1] = imageData.data[i + 1];
-      out[i + 2] = imageData.data[i + 2];
-      out[i + 3] = imageData.data[i + 3];
-    }
-  }
-  return { ...imageData, data: out };
-}
-
-/**
- * Apply a circular brush stroke to a mask. Paints with `value` (0=bg, 255=fg)
- * in a circle of `radius` pixels around (cx, cy). `softness` (0-1) controls
- * feathering at the brush edge.
- */
-export function brushStroke(
-  mask: Uint8ClampedArray,
-  w: number,
-  h: number,
-  cx: number,
-  cy: number,
-  radius: number,
-  value: number,
-  softness: number = 0,
-): Uint8ClampedArray {
-  const out = new Uint8ClampedArray(mask);
-  const r2 = radius * radius;
-  for (let y = Math.max(0, cy - radius); y <= Math.min(h - 1, cy + radius); y++) {
-    for (let x = Math.max(0, cx - radius); x <= Math.min(w - 1, cx + radius); x++) {
-      const dx = x - cx;
-      const dy = y - cy;
-      const d2 = dx * dx + dy * dy;
-      if (d2 > r2) continue;
-      const dist = Math.sqrt(d2);
-      let m = value;
-      if (softness > 0 && dist > radius * (1 - softness)) {
-        const featherDist = (dist - radius * (1 - softness)) / (radius * softness);
-        const feather = Math.max(0, 1 - featherDist);
-        m = value * feather;
-      }
-      const idx = y * w + x;
-      if (value > 0) {
-        out[idx] = Math.max(out[idx], m);
-      } else {
-        out[idx] = Math.min(out[idx], m);
-      }
     }
   }
   return out;
