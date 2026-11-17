@@ -230,3 +230,129 @@ export function morphMask(mask: Uint8ClampedArray, w: number, h: number, radius:
   }
   return out;
 }
+
+/**
+ * Flood-fill background mask starting from all border pixels.
+ *
+ * Treats pixels touching the image border as background seeds, then flood-fills
+ * through adjacent pixels whose color is similar (within `tolerance`) to the
+ * current pixel. Everything not reached by the flood fill is foreground.
+ *
+ * Honest limitations:
+ * - Works best when the subject is against a uniform background that touches
+ *   the image border.
+ * - Complex indoor backgrounds, hair against similar-colored walls, or subjects
+ *   touching the frame edge may segment poorly.
+ * - No AI model is used; this is a deterministic image-processing fallback.
+ *
+ * Returns a Uint8ClampedArray where 255 = foreground, 0 = background.
+ */
+export function floodFillBackgroundMask(
+  imageData: ImageData,
+  tolerance: number,
+): Uint8ClampedArray {
+  const data = imageData.data;
+  const w = imageData.width;
+  const h = imageData.height;
+  const total = w * h;
+
+  const mask = new Uint8ClampedArray(total); // 0 = background, 255 = foreground
+  const visited = new Uint8ClampedArray(total);
+  const queue: number[] = []; // stores pixel index (y*w + x)
+
+  // Seed: all border pixels are background candidates
+  const enqueue = (x: number, y: number) => {
+    const idx = y * w + x;
+    if (x < 0 || x >= w || y < 0 || y >= h || visited[idx]) return;
+    visited[idx] = 1;
+    mask[idx] = 0; // background
+    queue.push(idx);
+  };
+
+  // Top and bottom rows
+  for (let x = 0; x < w; x++) {
+    enqueue(x, 0);
+    enqueue(x, h - 1);
+  }
+  // Left and right columns
+  for (let y = 0; y < h; y++) {
+    enqueue(0, y);
+    enqueue(w - 1, y);
+  }
+
+  // BFS flood-fill through adjacent similar-colored pixels
+  const dirs = [-1, 1, -w, w];
+  let qi = 0;
+  while (qi < queue.length) {
+    const idx = queue[qi++];
+    const x = idx % w;
+    const base = idx * 4;
+    const r1 = data[base];
+    const g1 = data[base + 1];
+    const b1 = data[base + 2];
+
+    for (const d of dirs) {
+      const nIdx = idx + d;
+      // Skip wrapping across row boundaries for horizontal moves
+      if (d === -1 && x === 0) continue;
+      if (d === 1 && x === w - 1) continue;
+      if (nIdx < 0 || nIdx >= total || visited[nIdx]) continue;
+
+      const nBase = nIdx * 4;
+      const dr = data[nBase] - r1;
+      const dg = data[nBase + 1] - g1;
+      const db = data[nBase + 2] - b1;
+      const dist = Math.sqrt(dr * dr + dg * dg + db * db);
+
+      if (dist <= tolerance) {
+        visited[nIdx] = 1;
+        mask[nIdx] = 0; // background
+        queue.push(nIdx);
+      }
+    }
+  }
+
+  // Everything not reached by flood fill = foreground
+  for (let i = 0; i < total; i++) {
+    if (!visited[i]) mask[i] = 255;
+  }
+
+  return mask;
+}
+
+/**
+ * Automatic foreground/background segmentation using border flood-fill.
+ *
+ * Detects background by flood-filling from all border pixels through similar
+ * colors, then produces a foreground mask. Returns a pre-multiplied foreground
+ * ImageData ready for compositing over a new background via compositeOverColor.
+ *
+ * Honest limitations:
+ * - Best on subject against uniform background touching the frame edge.
+ * - Complex indoor backgrounds or subjects touching the frame edge may
+ *   segment poorly — no claim of advanced hair segmentation is made.
+ * - Zero-spend: runs entirely in the browser, no remote API, no API key.
+ */
+export function autoSegmentImageData(
+  imageData: ImageData,
+  tolerance: number,
+): { mask: Uint8ClampedArray; fgImageData: ImageData } {
+  const data = imageData.data;
+
+  const mask = floodFillBackgroundMask(imageData, tolerance);
+
+  // Build foreground image: premultiply RGB by alpha, set alpha from mask
+  const fg = new Uint8ClampedArray(data.length);
+  for (let i = 0; i < data.length; i += 4) {
+    const alpha = mask[i / 4] / 255;
+    fg[i] = data[i] * alpha;
+    fg[i + 1] = data[i + 1] * alpha;
+    fg[i + 2] = data[i + 2] * alpha;
+    fg[i + 3] = data[i + 3] * alpha;
+  }
+
+  return {
+    mask,
+    fgImageData: { ...imageData, data: fg },
+  };
+}

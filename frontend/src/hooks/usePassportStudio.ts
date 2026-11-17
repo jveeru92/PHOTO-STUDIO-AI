@@ -1,6 +1,10 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import type { PassportSettings } from '@/types';
-import { clamp0255 } from '@/utils/image';
+import {
+  autoSegmentImageData,
+  clamp0255,
+  compositeOverColor,
+} from '@/utils/image';
 
 export const DEFAULT_PASSPORT_SETTINGS: PassportSettings = {
   sheetWidthIn: 6,
@@ -26,6 +30,16 @@ export function usePassportStudio() {
 
   const setSource = useCallback((img: HTMLImageElement | null) => setSourceImage(img), []);
 
+  // Segmentation cache (ref — updating it does not trigger re-render).
+  // Stores the pre-composited foreground (person + current background color).
+  // Re-composited whenever backgroundColor changes; re-segmented only when
+  // sourceImage changes.
+  const segCache = useRef<{
+    source: HTMLImageElement;
+    bgColor: string;
+    fgImageData: ImageData;
+  } | null>(null);
+
   // Print-sheet canvas size in pixels at 300 DPI
   const sheetSize = useMemo(() => {
     const { orientation, sheetWidthIn, sheetHeightIn, dpi } = settings;
@@ -47,6 +61,39 @@ export function usePassportStudio() {
     };
   }, [settings, sheetSize]);
 
+  // Prepare the foreground image: segment source once, then composite over
+  // the selected background color whenever it changes.
+  const prepareForeground = useCallback((): ImageData | null => {
+    if (!sourceImage) return null;
+
+    // Re-segment only when the source image changes
+    if (!segCache.current || segCache.current.source !== sourceImage) {
+      // Draw source onto a temp canvas to get ImageData
+      const tmpCanvas = document.createElement('canvas');
+      tmpCanvas.width = sourceImage.naturalWidth;
+      tmpCanvas.height = sourceImage.naturalHeight;
+      const tmpCtx = tmpCanvas.getContext('2d')!;
+      tmpCtx.drawImage(sourceImage, 0, 0);
+      const imageData = tmpCtx.getImageData(0, 0, sourceImage.naturalWidth, sourceImage.naturalHeight);
+
+      // Segment: background = flood-fill from border, foreground = everything else
+      const { fgImageData } = autoSegmentImageData(imageData, 40);
+
+      segCache.current = { source: sourceImage, bgColor: settings.backgroundColor, fgImageData };
+    }
+
+    // Re-composite over the selected background color whenever it changes
+    if (segCache.current.bgColor !== settings.backgroundColor) {
+      segCache.current.fgImageData = compositeOverColor(
+        segCache.current.fgImageData,
+        settings.backgroundColor,
+      );
+      segCache.current.bgColor = settings.backgroundColor;
+    }
+
+    return segCache.current.fgImageData;
+  }, [sourceImage, settings.backgroundColor]);
+
   // Render the print sheet to an offscreen canvas and return a data URL
   const renderSheet = useCallback(async (): Promise<string | null> => {
     if (!sourceImage) return null;
@@ -55,9 +102,13 @@ export function usePassportStudio() {
     canvas.width = widthPx;
     canvas.height = heightPx;
     const ctx = canvas.getContext('2d')!;
-    // Fill background
-    ctx.fillStyle = settings.backgroundColor;
+
+    // Fill paper background (WHITE — never changes regardless of photo bg color)
+    ctx.fillStyle = '#ffffff';
     ctx.fillRect(0, 0, widthPx, heightPx);
+
+    const fgImageData = prepareForeground();
+    if (!fgImageData) return null;
 
     const { w: cellW, h: cellH, bw } = cell;
     const gap = settings.gapPx;
@@ -77,9 +128,16 @@ export function usePassportStudio() {
     cropH *= facePosition.scale;
     let cropX = (srcW - cropW) / 2 + (facePosition.x - 0.5) * (srcW - cropW) * 0.6;
     let cropY = (srcH - cropH) / 2 + (facePosition.y - 0.5) * (srcH - cropH) * 0.6;
-    cropX = clamp0255(cropX) / 255; // clamp to 0..1 roughly
+    cropX = clamp0255(cropX) / 255;
     cropX = Math.max(0, Math.min(srcW - cropW, cropX));
     cropY = Math.max(0, Math.min(srcH - cropH, cropY));
+
+    // Build a temp canvas from the composited foreground for cropping
+    const tempCanvas = document.createElement('canvas');
+    tempCanvas.width = fgImageData.width;
+    tempCanvas.height = fgImageData.height;
+    const tempCtx = tempCanvas.getContext('2d')!;
+    tempCtx.putImageData(fgImageData, 0, 0);
 
     for (let r = 0; r < settings.rows; r++) {
       for (let c = 0; c < settings.cols; c++) {
@@ -104,11 +162,23 @@ export function usePassportStudio() {
         }
         const dx = cx + (cellW - dw) / 2;
         const dy = cy + (cellH - dh) / 2;
-        ctx.drawImage(sourceImage, cropX, cropY, cropW, cropH, dx, dy, dw, dh);
+
+        // Draw cropped source region from the composited temp canvas
+        ctx.drawImage(
+          tempCanvas,
+          cropX,
+          cropY,
+          cropW,
+          cropH,
+          dx,
+          dy,
+          dw,
+          dh,
+        );
       }
     }
     return canvas.toDataURL('image/png');
-  }, [sourceImage, settings, sheetSize, cell, facePosition]);
+  }, [sourceImage, settings, sheetSize, cell, facePosition, prepareForeground]);
 
   return {
     settings,

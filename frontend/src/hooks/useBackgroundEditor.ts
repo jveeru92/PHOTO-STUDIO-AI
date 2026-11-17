@@ -1,5 +1,9 @@
 import { useCallback, useState } from 'react';
-import { makeChromaMask, morphMask } from '@/utils/image';
+import {
+  autoSegmentImageData,
+  compositeOverColor,
+  morphMask,
+} from '@/utils/image';
 
 export function useBackgroundEditor() {
   const [sourceUrl, setSourceUrl] = useState<string | null>(null);
@@ -9,6 +13,19 @@ export function useBackgroundEditor() {
   const [threshold, setThreshold] = useState(40);
   const [transparent, setTransparent] = useState(false);
   const [warning, setWarning] = useState<string | null>(null);
+
+  // Segmentation cache: source image -> foreground ImageData (premultiplied
+  // over the selected background color). Reused when only the background
+  // color changes, so we don't re-segment (and thus don't further degrade
+  // the original photograph) on every color swap.
+  type SegCache = {
+    sourceUrl: string;
+    mask: Uint8ClampedArray;
+    fgImageData: ImageData;
+    width: number;
+    height: number;
+  };
+  const [segCache, setSegCache] = useState<SegCache | null>(null);
 
   const process = useCallback(async (): Promise<string | null> => {
     if (!sourceUrl) return null;
@@ -20,46 +37,54 @@ export function useBackgroundEditor() {
     ctx.drawImage(img, 0, 0);
     const imageData = ctx.getImageData(0, 0, img.naturalWidth, img.naturalHeight);
 
-    // Foreground mask via chroma threshold (honest fallback; not AI hair segmentation)
-    const mask = makeChromaMask(imageData, transparent ? '#00ff00' : bgColor, threshold);
-    const refined = morphMask(mask, img.naturalWidth, img.naturalHeight, feather > 0 ? 1 : 0);
+    // Reuse cached segmentation when the source image hasn't changed.
+    let seg = segCache;
+    if (!seg || seg.sourceUrl !== sourceUrl) {
+      const result = autoSegmentImageData(imageData, threshold);
+      seg = {
+        sourceUrl,
+        mask: result.mask,
+        fgImageData: result.fgImageData,
+        width: img.naturalWidth,
+        height: img.naturalHeight,
+      };
+      setSegCache(seg);
+    }
+
+    // Feather the mask edge where requested
+    let mask = seg.mask;
+    if (feather > 0) {
+      mask = morphMask(mask, img.naturalWidth, img.naturalHeight, 1);
+    }
 
     // Build result: composite foreground over background color (or transparent)
     const out = document.createElement('canvas');
     out.width = img.naturalWidth;
     out.height = img.naturalHeight;
     const octx = out.getContext('2d')!;
+
     if (transparent) {
       octx.clearRect(0, 0, out.width, out.height);
-      // write alpha from mask
+      // Apply mask as alpha channel
       const od = octx.createImageData(out.width, out.height);
       for (let i = 0; i < imageData.data.length; i += 4) {
-        const alpha = refined[(i / 4) | 0] === undefined ? 0 : refined[Math.floor(i / 4)];
-        od.data[i] = imageData.data[i];
-        od.data[i + 1] = imageData.data[i + 1];
-        od.data[i + 2] = imageData.data[i + 2];
-        od.data[i + 3] = alpha;
+        const a = mask[Math.floor(i / 4)] / 255;
+        od.data[i] = imageData.data[i] * a;
+        od.data[i + 1] = imageData.data[i + 1] * a;
+        od.data[i + 2] = imageData.data[i + 2] * a;
+        od.data[i + 3] = imageData.data[i + 3] * a;
       }
       octx.putImageData(od, 0, 0);
     } else {
-      octx.fillStyle = bgColor;
-      octx.fillRect(0, 0, out.width, out.height);
-      const fg = ctx.createImageData(img.naturalWidth, img.naturalHeight);
-      for (let i = 0; i < imageData.data.length; i += 4) {
-        const alpha = refined[Math.floor(i / 4)];
-        const a = alpha / 255;
-        fg.data[i] = imageData.data[i] * a;
-        fg.data[i + 1] = imageData.data[i + 1] * a;
-        fg.data[i + 2] = imageData.data[i + 2] * a;
-        fg.data[i + 3] = imageData.data[i + 3] * a;
-      }
-      octx.putImageData(fg, 0, 0);
+      // Composite foreground over selected background color
+      const fgComposite = compositeOverColor(seg.fgImageData, bgColor);
+      octx.putImageData(fgComposite, 0, 0);
     }
 
     const dataUrl = out.toDataURL('image/png');
     setResultUrl(dataUrl);
     return dataUrl;
-  }, [sourceUrl, bgColor, feather, threshold, transparent]);
+  }, [sourceUrl, bgColor, feather, threshold, segCache]);
 
   return {
     sourceUrl,
