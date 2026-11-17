@@ -1,15 +1,17 @@
 /**
  * Image-to-image editing endpoint.
  *
- * Inspects all configured providers to determine if any genuinely supports
- * image-to-image editing. Currently:
- *   - Cloudflare Workers AI (@cf/black-forest-labs/flux-2-klein-4b): text-to-image ONLY.
- *   - Gemini: vision-capable chat, text output only — not image editing.
- *   - OpenRouter: text-only chat — not image editing.
+ * Uses Cloudflare Workers AI with an image-to-image model (e.g.
+ * stable-diffusion-xl-base-1.0 or flux-1-kontext-dev) to edit an uploaded
+ * photograph according to a prompt. Server-side only — API token + account
+ * ID never reach the frontend.
  *
- * No configured provider supports image-to-image editing, so we return
- * edited: false with a clear message rather than faking a result.
+ * Zero-spend: uses Cloudflare Workers AI free allocation (10,000 Neurons/day).
+ * Enforced via ZERO_SPEND_MODE and quota manager.
  */
+
+const { record, canProceed } = require('../backend/quota-manager');
+const Cloudflare = require('./providers/cloudflare');
 
 module.exports.handler = async (event) => {
   if (event.httpMethod !== 'POST') return { statusCode: 405, body: JSON.stringify({ error: 'Method not allowed' }) };
@@ -17,40 +19,47 @@ module.exports.handler = async (event) => {
   let payload;
   try { payload = JSON.parse(event.body || '{}'); } catch { return { statusCode: 400, body: JSON.stringify({ error: 'Invalid JSON' }) }; }
 
-  const { imageUrl, prompt } = payload;
+  const { imageUrl, prompt, conversationId } = payload;
   if (!imageUrl || !prompt) {
     return { statusCode: 400, body: JSON.stringify({ error: 'imageUrl and prompt are required' }) };
   }
 
-  // Check if any configured provider supports image-to-image editing.
-  const Cloudflare = require('./providers/cloudflare');
-  const Gemini = require('./providers/gemini');
-  const OpenRouter = require('./providers/openrouter');
+  if (!Cloudflare.configured) {
+    return {
+      statusCode: 400,
+      headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
+      body: JSON.stringify({
+        ok: false,
+        edited: false,
+        error: 'Cloudflare Workers AI not configured. Add CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID in Netlify environment variables.',
+      }),
+    };
+  }
 
-  const providers = [Cloudflare, Gemini, OpenRouter];
-  const hasImageEditor = providers.some((p) => p.configured && typeof p.edit === 'function');
+  const proceed = canProceed('image', 'Cloudflare Workers AI');
+  if (!proceed.allowed) {
+    return { statusCode: 403, headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }, body: JSON.stringify({ ok: false, edited: false, error: proceed.reason || 'Quota exhausted or provider unavailable' }) };
+  }
 
-  if (!hasImageEditor) {
+  try {
+    const result = await Cloudflare.edit({ imageBase64: imageUrl, prompt });
+    record('image', 'Cloudflare Workers AI', 1, 1);
     return {
       statusCode: 200,
       headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
       body: JSON.stringify({
         ok: true,
-        edited: false,
-        message: 'No configured AI provider supports image-to-image editing. Cloudflare Workers AI (flux-2-klein-4b) is text-to-image only; Gemini and OpenRouter are text/vision chat only. Configure a verified image-editing provider to use AI Enhance. Manual editing and print-sheet generation still work offline.',
-        provider: 'none',
+        edited: true,
+        editedImageUrl: result.imageUrl,
+        provider: Cloudflare.name,
+        model: Cloudflare.model,
       }),
     };
+  } catch (err) {
+    return {
+      statusCode: 502,
+      headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
+      body: JSON.stringify({ ok: false, edited: false, error: err.message || 'Image editing failed' }),
+    };
   }
-
-  return {
-    statusCode: 200,
-    headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
-    body: JSON.stringify({
-      ok: true,
-      edited: false,
-      message: 'Image-to-image editing not yet implemented for this provider.',
-      provider: 'none',
-    }),
-  };
 };
