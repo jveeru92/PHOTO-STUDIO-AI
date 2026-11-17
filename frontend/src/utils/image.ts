@@ -356,3 +356,228 @@ export function autoSegmentImageData(
     fgImageData: { ...imageData, data: fg },
   };
 }
+
+/**
+ * Morphological erosion: shrinks foreground regions by removing pixels
+ * that have any background neighbor within `radius` pixels.
+ * Used to tighten mask edges and remove halo artifacts.
+ */
+export function erodeMask(mask: Uint8ClampedArray, w: number, h: number, radius: number): Uint8ClampedArray {
+  const out = new Uint8ClampedArray(w * h);
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      let allForeground = 255;
+      for (let dy = -radius; dy <= radius; dy++) {
+        const sy = clamp(y + dy, 0, h - 1);
+        for (let dx = -radius; dx <= radius; dx++) {
+          const sx = clamp(x + dx, 0, w - 1);
+          if (mask[sy * w + sx] === 0) {
+            allForeground = 0;
+            break;
+          }
+        }
+        if (allForeground === 0) break;
+      }
+      out[y * w + x] = allForeground;
+    }
+  }
+  return out;
+}
+
+/**
+ * Morphological dilation: grows foreground regions by setting pixels
+ * to foreground if any neighbor within `radius` pixels is foreground.
+ * Used to expand mask coverage and close small gaps.
+ */
+export function dilateMask(mask: Uint8ClampedArray, w: number, h: number, radius: number): Uint8ClampedArray {
+  const out = new Uint8ClampedArray(w * h);
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      let anyForeground = 0;
+      for (let dy = -radius; dy <= radius; dy++) {
+        const sy = clamp(y + dy, 0, h - 1);
+        for (let dx = -radius; dx <= radius; dx++) {
+          const sx = clamp(x + dx, 0, w - 1);
+          if (mask[sy * w + sx] > 0) {
+            anyForeground = 255;
+            break;
+          }
+        }
+        if (anyForeground > 0) break;
+      }
+      out[y * w + x] = anyForeground;
+    }
+  }
+  return out;
+}
+
+/**
+ * Gaussian blur with separable kernel. Used for mask edge feathering.
+ * `sigma` controls the blur strength.
+ */
+export function gaussianBlur(data: Uint8ClampedArray, w: number, h: number, sigma: number): Uint8ClampedArray {
+  const kernelSize = Math.max(1, Math.floor(sigma * 3) * 2 + 1);
+  const radius = Math.floor(kernelSize / 2);
+  const kernel = new Float64Array(kernelSize);
+  const twoSigmaSq = 2 * sigma * sigma;
+  const sum = kernel.reduce((acc, _, i) => {
+    const d = i - radius;
+    kernel[i] = Math.exp(-(d * d) / twoSigmaSq);
+    return acc + kernel[i];
+  }, 0);
+  for (let i = 0; i < kernelSize; i++) {
+    kernel[i] /= sum;
+  }
+
+  const temp = new Uint8ClampedArray(data.length);
+  // Horizontal pass
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      let r = 0, g = 0, b = 0, a = 0, wSum = 0;
+      for (let i = 0; i < kernelSize; i++) {
+        const dx = i - radius;
+        const sx = clamp(x + dx, 0, w - 1);
+        const idx = (y * w + sx) * 4;
+        const k = kernel[i];
+        r += data[idx] * k;
+        g += data[idx + 1] * k;
+        b += data[idx + 2] * k;
+        a += data[idx + 3] * k;
+        wSum += k;
+      }
+      const idx = (y * w + x) * 4;
+      temp[idx] = r / wSum;
+      temp[idx + 1] = g / wSum;
+      temp[idx + 2] = b / wSum;
+      temp[idx + 3] = a / wSum;
+    }
+  }
+  // Vertical pass
+  const out = new Uint8ClampedArray(data.length);
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      let r = 0, g = 0, b = 0, a = 0, wSum = 0;
+      for (let i = 0; i < kernelSize; i++) {
+        const dy = i - radius;
+        const sy = clamp(y + dy, 0, h - 1);
+        const idx = (sy * w + x) * 4;
+        const k = kernel[i];
+        r += temp[idx] * k;
+        g += temp[idx + 1] * k;
+        b += temp[idx + 2] * k;
+        a += temp[idx + 3] * k;
+        wSum += k;
+      }
+      const idx = (y * w + x) * 4;
+      out[idx] = r / wSum;
+      out[idx + 1] = g / wSum;
+      out[idx + 2] = b / wSum;
+      out[idx + 3] = a / wSum;
+    }
+  }
+  return out;
+}
+
+/**
+ * Composite foreground (premultiplied alpha) over a solid background color.
+ * Returns a new ImageData with alpha = 255 everywhere.
+ */
+export function compositeForeground(fgImageData: ImageData, color: string): ImageData {
+  const c = parseColor(color);
+  const out = new Uint8ClampedArray(fgImageData.data.length);
+  const data = fgImageData.data;
+  for (let i = 0; i < data.length; i += 4) {
+    const alpha = data[i + 3] / 255;
+    out[i] = clamp0255(data[i] + c.r * (1 - alpha));
+    out[i + 1] = clamp0255(data[i + 1] + c.g * (1 - alpha));
+    out[i + 2] = clamp0255(data[i + 2] + c.b * (1 - alpha));
+    out[i + 3] = 255;
+  }
+  return { ...fgImageData, data: out };
+}
+
+/**
+ * Composite a foreground RGBA image over a background RGBA image.
+ * Both must have the same dimensions. Standard alpha compositing.
+ */
+export function compositeOver(fg: ImageData, bg: ImageData): ImageData {
+  const out = new Uint8ClampedArray(fg.data.length);
+  for (let i = 0; i < fg.data.length; i += 4) {
+    const fa = fg.data[i + 3] / 255;
+    const ba = bg.data[i + 3] / 255;
+    const outA = fa + ba * (1 - fa);
+    if (outA > 0) {
+      out[i] = clamp0255((fg.data[i] * fa + bg.data[i] * ba * (1 - fa)) / outA);
+      out[i + 1] = clamp0255((fg.data[i + 1] * fa + bg.data[i + 1] * ba * (1 - fa)) / outA);
+      out[i + 2] = clamp0255((fg.data[i + 2] * fa + bg.data[i + 2] * ba * (1 - fa)) / outA);
+      out[i + 3] = clamp0255(outA * 255);
+    } else {
+      out[i] = out[i + 1] = out[i + 2] = out[i + 3] = 0;
+    }
+  }
+  return { ...fg, data: out };
+}
+
+/**
+ * Draw a semi-transparent red overlay on top of the image where mask == 255.
+ * Used for visualizing the segmentation mask during editing.
+ */
+export function drawMaskOverlay(imageData: ImageData, mask: Uint8ClampedArray, alpha = 0.3): ImageData {
+  const out = new Uint8ClampedArray(imageData.data.length);
+  for (let i = 0; i < imageData.data.length; i += 4) {
+    const m = mask[i / 4] / 255;
+    if (m > 0) {
+      out[i] = clamp0255(imageData.data[i] * (1 - m * alpha) + 255 * m * alpha);
+      out[i + 1] = imageData.data[i + 1] * (1 - m * alpha);
+      out[i + 2] = imageData.data[i + 2] * (1 - m * alpha);
+      out[i + 3] = imageData.data[i + 3];
+    } else {
+      out[i] = imageData.data[i];
+      out[i + 1] = imageData.data[i + 1];
+      out[i + 2] = imageData.data[i + 2];
+      out[i + 3] = imageData.data[i + 3];
+    }
+  }
+  return { ...imageData, data: out };
+}
+
+/**
+ * Apply a circular brush stroke to a mask. Paints with `value` (0=bg, 255=fg)
+ * in a circle of `radius` pixels around (cx, cy). `softness` (0-1) controls
+ * feathering at the brush edge.
+ */
+export function brushStroke(
+  mask: Uint8ClampedArray,
+  w: number,
+  h: number,
+  cx: number,
+  cy: number,
+  radius: number,
+  value: number,
+  softness: number = 0,
+): Uint8ClampedArray {
+  const out = new Uint8ClampedArray(mask);
+  const r2 = radius * radius;
+  for (let y = Math.max(0, cy - radius); y <= Math.min(h - 1, cy + radius); y++) {
+    for (let x = Math.max(0, cx - radius); x <= Math.min(w - 1, cx + radius); x++) {
+      const dx = x - cx;
+      const dy = y - cy;
+      const d2 = dx * dx + dy * dy;
+      if (d2 > r2) continue;
+      const dist = Math.sqrt(d2);
+      let m = value;
+      if (softness > 0 && dist > radius * (1 - softness)) {
+        const featherDist = (dist - radius * (1 - softness)) / (radius * softness);
+        const feather = Math.max(0, 1 - featherDist);
+        m = value * feather;
+      }
+      const idx = y * w + x;
+      if (value > 0) {
+        out[idx] = Math.max(out[idx], m);
+      } else {
+        out[idx] = Math.min(out[idx], m);
+      }
+    }
+  }
+  return out;
+}

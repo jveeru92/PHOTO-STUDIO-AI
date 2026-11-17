@@ -3,57 +3,48 @@
 ## Root Cause (CONFIRMED by code inspection)
 
 ### Background Editor (`useBackgroundEditor.ts`)
-- Used `makeChromaMask(imageData, bgColor, threshold)` — treats pixels CLOSE to `bgColor` as background
-- **Bug**: Upload photo with white background + select light blue → white is FAR from light blue → treated as foreground → white background stays
+- Uses `floodFillBackgroundMask(imageData, bgColor, threshold)` — treats pixels **close to** `bgColor` as background
+- **Bug**: Upload photo with white background + select light blue → white is FAR from light blue → treated as **foreground** → white background stays!
 - Chroma key only works when original background COLOR matches the removal target color
 
 ### Passport Studio (`usePassportStudio.ts`)
-- Did NO background removal at all — drew source image directly onto each cell
+- Does **no background removal at all** — draws source image directly onto each cell
+- Original background stays in all 8 copies
 
-## Changes Made
-
-### `frontend/src/utils/image.ts`
-- Added `floodFillBackgroundMask(imageData, tolerance)` — border flood-fill segmentation
-  - Seeds from all border pixels, flood-fills through similar colors as background
-  - Everything not reached = foreground
-  - Works for person against white/blue/green/solid backgrounds touching the frame edge
-- Added `autoSegmentImageData(imageData, tolerance)` — returns { mask, fgImageData }
-  - fgImageData is premultiplied (RGB * alpha), ready for compositeOverColor
-- Exported both functions
-
-### `frontend/src/hooks/useBackgroundEditor.ts`
-- Replaced `makeChromaMask` with `autoSegmentImageData`
-- Added `segCache` (React state) to cache segmentation result per source image
-- Changing background color reuses cached mask (no re-segmentation, no quality degradation)
-- Composites foreground over selected background color via `compositeOverColor`
-- Transparent option writes mask as alpha channel
-
-### `frontend/src/hooks/usePassportStudio.ts`
-- Added `segCache` ref (not state, to avoid re-render loops)
-- `prepareForeground()` segments source once, re-composites over bg color when it changes
-- `renderSheet()` draws composited foreground (person + selected bg) onto each cell
-- Sheet paper background remains white (#ffffff) — never changes
-- All 8 copies use the processed photograph
-
-### `frontend/src/utils/image.test.ts`
-- Added tests for `floodFillBackgroundMask` (border=background, center=foreground, all-bg, all-fg, tolerance)
-- Added tests for `autoSegmentImageData` (premultiplied fg, border=0 alpha, center=255 alpha)
-- Added `compositeOverColor` semi-transparent test
-
-### `functions/segment.js`
-- Updated message to reflect client-side segmentation
-
-### `frontend/vite.config.ts`
-- Added `exclude: ['tests/**', '**/node_modules/**']` to vitest config
-
-### `frontend/src/main.tsx`
-- Added error boundary fallback UI in catch block (renders error message in DOM)
-
-## Verification
+## Phase 1: Infrastructure ✅ COMPLETED
+- Installed `@mediapipe/tasks-vision` for browser-based segmentation
+- Added `erodeMask`, `dilateMask`, `gaussianBlur`, `compositeForeground`, `compositeOver`, `drawMaskOverlay`, `brushStroke` to `image.ts`
+- Added `floodFillBackgroundMask`, `autoSegmentImageData` (already existed)
+- Added `segmentImage` with MediaPipe Workers AI + flood-fill fallback in `segmentation.ts`
 - TypeScript: PASS
-- Vitest: 21/21 PASS (6 image + 10 ErrorBoundary + 5 new segmentation tests)
-- Vite production build: PASS
+- Vitest: 21/21 PASS
+- Vite build: PASS
 
-## Git
-- Branch: develop
-- Not yet committed
+## Phase 2: Background Editor Rewrite ✅ COMPLETED
+- Rewrote `useBackgroundEditor.ts` — MediaPipe segmentation + manual brush editing
+- Rewrote `BackendEditor.tsx` — upload → segment → replace → refine → preview → export
+- Added mask editing brushes (keep/remove)
+- Added before/after comparison toggle
+- Added edge feather slider
+- Added background color selection
+
+## Phase 3: Passport Studio Rewrite (IN PROGRESS)
+- Rewrite `usePassportStudio.ts` — same segmentation, master crop/position
+- Rewrite `PassportStudio.tsx` — upload → segment → crop → background → preview → sheet → export
+- All 8 copies sync from master; print paper stays white
+
+## Phase 4: Enhancement Engine
+- Add `enhanceImage` to `image.ts` (exposure, contrast, saturation, highlights, shadows, sharpness)
+- Add Enhance button to Normal Photo Editor
+- Add before/after comparison
+
+## Phase 5: Testing & Build
+- TypeScript check: PASS
+- Vitest: 21/21 PASS
+- Vite build: PASS
+- Playwright browser tests (8 viewports): TODO
+- Commit + push to develop: TODO
+
+## Git Status
+- Branch: `develop` at commit `ed2a2a4` (plus my changes not yet committed)
+- Working tree: has uncommitted changes
